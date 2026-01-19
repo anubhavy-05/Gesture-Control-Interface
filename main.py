@@ -34,19 +34,59 @@ def main():
     """
     Main function to run the AI Virtual Mouse application.
     """
-    # Initialize webcam
-    capture = cv2.VideoCapture(0)
-    capture.set(3, 640)  # Set width
-    capture.set(4, 480)  # Set height
+    print("="*50)
+    print("AI Virtual Mouse - Starting...")
+    print("="*50)
     
-    # Check if webcam opened successfully
-    if not capture.isOpened():
-        print("Error: Could not open webcam.")
+    # Initialize hand detector and mouse controller first
+    try:
+        print("\n[1/3] Initializing hand detector...")
+        detector = HandDetector(max_hands=1, detection_confidence=0.7, tracking_confidence=0.7)
+        print("✓ Hand detector initialized")
+    except Exception as e:
+        print(f"✗ Error initializing hand detector: {e}")
         return
     
-    # Initialize hand detector and mouse controller
-    detector = HandDetector(max_hands=1, detection_confidence=0.7, tracking_confidence=0.7)
-    mouse = MouseController(smoothing_factor=7)
+    try:
+        print("\n[2/3] Initializing mouse controller...")
+        mouse = MouseController(smoothing_factor=7)
+        print(f"✓ Mouse controller initialized (Screen: {mouse.screen_width}x{mouse.screen_height})")
+    except Exception as e:
+        print(f"✗ Error initializing mouse controller: {e}")
+        return
+    
+    # Initialize webcam
+    print("\n[3/3] Opening webcam...")
+    capture = cv2.VideoCapture(0)
+    
+    # Try alternative camera indices if 0 fails
+    if not capture.isOpened():
+        print("⚠ Camera 0 not available, trying camera 1...")
+        capture = cv2.VideoCapture(1)
+    
+    if not capture.isOpened():
+        print("✗ Error: Could not open webcam.")
+        print("Please check:")
+        print("  - Is your webcam connected?")
+        print("  - Is another application using the webcam?")
+        print("  - Do you have webcam permissions enabled?")
+        return
+    
+    # Set webcam properties
+    capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    
+    # Verify we can read a frame
+    ret, test_frame = capture.read()
+    if not ret or test_frame is None:
+        print("✗ Error: Webcam opened but cannot read frames.")
+        capture.release()
+        return
+    
+    print(f"✓ Webcam opened successfully ({test_frame.shape[1]}x{test_frame.shape[0]})")
+    print("\n" + "="*50)
+    print("READY! Webcam window will open now...")
+    print("="*50)
     
     # Variables for FPS calculation
     prev_time = 0
