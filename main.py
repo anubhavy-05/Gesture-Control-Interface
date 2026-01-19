@@ -53,7 +53,7 @@ def main():
     
     # Variables for click detection
     click_performed = False
-    click_cooldown_time = 0.5  # Cooldown period in seconds to prevent multiple clicks
+    click_cooldown_time = 0.3  # Cooldown period in seconds to prevent multiple clicks
     last_click_time = 0
     
     # Frame dimensions (will be updated when first frame is captured)
@@ -92,6 +92,12 @@ def main():
             # Get finger status (which fingers are up)
             fingers = detector.fingersUp(landmark_list)
             
+            # Debug: Display finger states
+            finger_names = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
+            debug_text = ' | '.join([f"{name}: {fingers[i]}" for i, name in enumerate(finger_names)])
+            cv2.putText(frame, debug_text, (10, frame_height - 20), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            
             # Extract key landmark positions
             # Landmark 8: Index finger tip
             # Landmark 12: Middle finger tip
@@ -128,9 +134,17 @@ def main():
                 # Calculate distance between index and middle finger tips
                 distance = calculate_distance(index_finger_tip, middle_finger_tip)
                 
+                # Calculate midpoint for visual feedback
+                mid_x = (index_finger_tip[1] + middle_finger_tip[1]) // 2
+                mid_y = (index_finger_tip[2] + middle_finger_tip[2]) // 2
+                
                 # Display click mode indicator
                 cv2.putText(frame, "CLICK MODE", (10, 120), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+                
+                # Display distance for debugging
+                cv2.putText(frame, f"Distance: {int(distance)}", (10, 150), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
                 
                 # Draw a line between the two fingertips for visual feedback
                 cv2.line(frame, 
@@ -138,31 +152,35 @@ def main():
                         (middle_finger_tip[1], middle_finger_tip[2]), 
                         (255, 0, 255), 3)
                 
-                # Calculate midpoint for visual feedback
-                mid_x = (index_finger_tip[1] + middle_finger_tip[1]) // 2
-                mid_y = (index_finger_tip[2] + middle_finger_tip[2]) // 2
                 cv2.circle(frame, (mid_x, mid_y), 10, (255, 0, 255), cv2.FILLED)
                 
                 # If fingers are close together, perform click
                 # Distance threshold depends on hand size and camera distance
-                click_threshold = 40  # pixels
+                click_threshold = 50  # Increased threshold for easier triggering
                 current_time = time.time()
                 
                 if distance < click_threshold:
+                    # Visual feedback - fingers are close enough
+                    cv2.putText(frame, "CLICKING!", (10, 180), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+                    cv2.circle(frame, (mid_x, mid_y), 20, (0, 255, 0), cv2.FILLED)
+                    
                     # Check cooldown to prevent multiple rapid clicks
                     if not click_performed and (current_time - last_click_time > click_cooldown_time):
-                        mouse.click(button='left')
-                        print("Click performed!")
-                        
-                        # Visual feedback for click
-                        cv2.circle(frame, (mid_x, mid_y), 15, (0, 255, 0), cv2.FILLED)
-                        
-                        # Set flags to prevent multiple clicks
-                        click_performed = True
-                        last_click_time = current_time
+                        try:
+                            mouse.click(button='left')
+                            print(f"✓ Click performed! Distance: {int(distance)}px")
+                            
+                            # Set flags to prevent multiple clicks
+                            click_performed = True
+                            last_click_time = current_time
+                        except Exception as e:
+                            print(f"Error clicking: {e}")
                 else:
                     # Reset click flag when fingers are apart
                     click_performed = False
+                    cv2.putText(frame, "Bring fingers closer", (10, 180), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
         
         else:
             # No hand detected - display message
