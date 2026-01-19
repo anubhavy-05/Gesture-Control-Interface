@@ -45,8 +45,8 @@ def main():
         return
     
     # Initialize hand detector and mouse controller
-    detector = HandDetector(max_hands=1, detection_confidence=0.75, tracking_confidence=0.75)
-    mouse = MouseController(smoothing_factor=5)
+    detector = HandDetector(max_hands=1, detection_confidence=0.7, tracking_confidence=0.7)
+    mouse = MouseController(smoothing_factor=7)
     
     # Variables for FPS calculation
     prev_time = 0
@@ -106,8 +106,8 @@ def main():
                 # Map webcam coordinates to screen coordinates
                 screen_x, screen_y = mouse.mapCoordinates(
                     x, y, frame_width, frame_height,
-                    padding_left=100, padding_right=100,
-                    padding_top=100, padding_bottom=100
+                    padding_left=50, padding_right=50,
+                    padding_top=50, padding_bottom=50
                 )
                 
                 # Move the cursor
@@ -116,6 +116,10 @@ def main():
                 # Draw a circle on the index finger tip for visual feedback
                 cv2.circle(frame, (x, y), 15, (0, 255, 0), cv2.FILLED)
                 
+                # Display cursor mode indicator
+                cv2.putText(frame, "MOVE MODE", (10, 120), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                
                 # Reset click performed flag when in move mode
                 click_performed = False
             
@@ -123,6 +127,10 @@ def main():
             elif fingers[1] == 1 and fingers[2] == 1:  # Both Index and Middle up
                 # Calculate distance between index and middle finger tips
                 distance = calculate_distance(index_finger_tip, middle_finger_tip)
+                
+                # Display click mode indicator
+                cv2.putText(frame, "CLICK MODE", (10, 120), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
                 
                 # Draw a line between the two fingertips for visual feedback
                 cv2.line(frame, 
