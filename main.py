@@ -4,7 +4,11 @@ Control your mouse cursor using hand gestures captured through your webcam.
 
 Gestures:
 - Index finger up: Move mouse cursor
-- Index + Middle fingers up (close together): Perform left click
+- Index finger + Thumb close (<30px): Left click
+- Middle finger + Thumb close (<30px): Right click
+- Ring finger folded (with index up): Double click
+- Pinky finger up (only): Scroll mode - move hand up/down to scroll
+- All fingers up (Open Palm): Alternative scroll mode
 """
 
 import cv2
@@ -100,6 +104,12 @@ def main():
     last_right_click_time = 0
     last_double_click_time = 0
     
+    # Variables for scroll detection
+    scroll_mode_active = False
+    prev_hand_y = None  # Track previous hand position for scroll detection
+    scroll_threshold = 15  # Minimum vertical movement to trigger scroll
+    scroll_sensitivity = 1  # Scroll speed multiplier
+    
     # Distance threshold for finger-thumb proximity
     click_distance_threshold = 30
     
@@ -107,6 +117,8 @@ def main():
     frame_width = 640
     frame_height = 480
     
+    print("  - Pinky finger up (only): Scroll Mode")
+    print("  - All fingers up (Open Palm): Alternative Scroll Mode")
     print("AI Virtual Mouse Started!")
     print("Gestures:")
     print("  - Index finger up: Move mouse")
@@ -151,11 +163,15 @@ def main():
             # Landmark 4: Thumb tip
             # Landmark 8: Index finger tip
             # Landmark 12: Middle finger tip
-            # Landmark 16: Ring finger tip
-            # Landmark 14: Ring finger PIP joint (to detect if folded)
+            # Landmark 20: Pinky finger tip
+            # Landmark 0: Wrist (base of palm)
             thumb_tip = landmark_list[4]
             index_finger_tip = landmark_list[8]
             middle_finger_tip = landmark_list[12]
+            ring_finger_tip = landmark_list[16]
+            ring_finger_pip = landmark_list[14]  # PIP joint for ring finger
+            pinky_tip = landmark_list[20]
+            wrist = landmark_list[0]  # Wrist position for tracking hand movement
             ring_finger_tip = landmark_list[16]
             ring_finger_pip = landmark_list[14]  # PIP joint for ring finger
             
@@ -264,6 +280,56 @@ def main():
             else:
                 if not ring_finger_folded:
                     double_click_performed = False
+            
+            # Mode 4: SCROLL MODE - Pinky finger up (only) or All fingers up (Open Palm)
+            # Check for Pinky Only mode (recommended - more precise)
+            pinky_only_mode = fingers[4] == 1 and fingers[1] == 0 and fingers[2] == 0 and fingers[3] == 0
+            
+            # Check for Open Palm mode (all fingers up)
+            open_palm_mode = all(fingers)
+            
+            if pinky_only_mode or open_palm_mode:
+                scroll_mode_active = True
+                
+                # Get current hand position (using wrist as reference point)
+                current_hand_y = wrist[2]
+                
+                # Visual feedback for scroll mode
+                mode_text = "SCROLL MODE (Pinky)" if pinky_only_mode else "SCROLL MODE (Palm)"
+                cv2.putText(frame, mode_text, (10, 120), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+                
+                # Draw indicator circle on pinky or palm center
+                indicator_x = pinky_tip[1] if pinky_only_mode else wrist[1]
+                indicator_y = pinky_tip[2] if pinky_only_mode else wrist[2]
+                cv2.circle(frame, (indicator_x, indicator_y), 15, (255, 0, 255), cv2.FILLED)
+                
+                # If we have a previous position, calculate movement and scroll
+                if prev_hand_y is not None:
+                    # Calculate vertical movement (delta_y)
+                    delta_y = prev_hand_y - current_hand_y
+                    
+                    # Only scroll if movement exceeds threshold
+                    if abs(delta_y) > scroll_threshold:
+                        # Calculate scroll amount (positive = scroll up, negative = scroll down)
+                        scroll_amount = int((delta_y / scroll_threshold) * scroll_sensitivity)
+                        
+                        # Perform scroll
+                        mouse.scroll(scroll_amount)
+                        
+                        # Visual feedback with direction arrow
+                        scroll_direction = "UP ↑" if delta_y > 0 else "DOWN ↓"
+                        cv2.putText(frame, f"SCROLLING {scroll_direction}", (10, 150), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                        
+                        print(f"✓ SCROLL {scroll_direction}: {scroll_amount} units (delta: {int(delta_y)}px)")
+                
+                # Update previous hand position
+                prev_hand_y = current_hand_y
+            else:
+                # Reset scroll mode
+                scroll_mode_active = False
+                prev_hand_y = None
         
         else:
             # No hand detected - display message
