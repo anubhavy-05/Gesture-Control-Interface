@@ -190,10 +190,12 @@ def main():
                 x, y = index_finger_tip[1], index_finger_tip[2]
                 
                 # Map webcam coordinates to screen coordinates
+                # Larger padding = smaller camera area maps to full screen
+                # Adjust these values: Higher = easier to reach screen edges
                 screen_x, screen_y = mouse.mapCoordinates(
                     x, y, frame_width, frame_height,
-                    padding_left=50, padding_right=50,
-                    padding_top=50, padding_bottom=50
+                    padding_left=150, padding_right=150,
+                    padding_top=100, padding_bottom=100
                 )
                 
                 # Move the cursor
@@ -233,8 +235,8 @@ def main():
                 # Map webcam coordinates to screen coordinates
                 screen_x, screen_y = mouse.mapCoordinates(
                     x, y, frame_width, frame_height,
-                    padding_left=50, padding_right=50,
-                    padding_top=50, padding_bottom=50
+                    padding_left=150, padding_right=150,
+                    padding_top=100, padding_bottom=100
                 )
                 
                 # Move the cursor
