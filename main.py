@@ -92,9 +92,16 @@ def main():
     prev_time = 0
     
     # Variables for click detection
-    click_performed = False
-    click_cooldown_time = 0.3  # Cooldown period in seconds to prevent multiple clicks
-    last_click_time = 0
+    left_click_performed = False
+    right_click_performed = False
+    double_click_performed = False
+    click_cooldown_time = 0.5  # Cooldown period in seconds to prevent multiple clicks
+    last_left_click_time = 0
+    last_right_click_time = 0
+    last_double_click_time = 0
+    
+    # Distance threshold for finger-thumb proximity
+    click_distance_threshold = 30
     
     # Frame dimensions (will be updated when first frame is captured)
     frame_width = 640
@@ -103,7 +110,9 @@ def main():
     print("AI Virtual Mouse Started!")
     print("Gestures:")
     print("  - Index finger up: Move mouse")
-    print("  - Index + Middle fingers up (close together): Click")
+    print("  - Index + Thumb close (<30px): Left Click")
+    print("  - Middle + Thumb close (<30px): Right Click")
+    print("  - Ring finger folded: Double Click")
     print("Press 'q' to quit.")
     
     while True:
@@ -139,10 +148,25 @@ def main():
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             
             # Extract key landmark positions
+            # Landmark 4: Thumb tip
             # Landmark 8: Index finger tip
             # Landmark 12: Middle finger tip
+            # Landmark 16: Ring finger tip
+            # Landmark 14: Ring finger PIP joint (to detect if folded)
+            thumb_tip = landmark_list[4]
             index_finger_tip = landmark_list[8]
             middle_finger_tip = landmark_list[12]
+            ring_finger_tip = landmark_list[16]
+            ring_finger_pip = landmark_list[14]  # PIP joint for ring finger
+            
+            # Calculate distances for gesture detection
+            dist_index_thumb = calculate_distance(index_finger_tip, thumb_tip)
+            dist_middle_thumb = calculate_distance(middle_finger_tip, thumb_tip)
+            
+            # Check if ring finger is folded (tip below PIP joint)
+            ring_finger_folded = ring_finger_tip[2] > ring_finger_pip[2]
+            
+            current_time = time.time()
             
             # Mode 1: Only Index finger is up -> Move mouse
             if fingers[1] == 1 and fingers[2] == 0:  # Index up, Middle down
@@ -166,61 +190,80 @@ def main():
                 cv2.putText(frame, "MOVE MODE", (10, 120), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                 
-                # Reset click performed flag when in move mode
-                click_performed = False
-            
-            # Mode 2: Index and Middle fingers are up -> Check for click
-            elif fingers[1] == 1 and fingers[2] == 1:  # Both Index and Middle up
-                # Calculate distance between index and middle finger tips
-                distance = calculate_distance(index_finger_tip, middle_finger_tip)
-                
-                # Calculate midpoint for visual feedback
-                mid_x = (index_finger_tip[1] + middle_finger_tip[1]) // 2
-                mid_y = (index_finger_tip[2] + middle_finger_tip[2]) // 2
-                
-                # Display click mode indicator
-                cv2.putText(frame, "CLICK MODE", (10, 120), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
+                # Check for LEFT CLICK gesture (Index + Thumb close)
+                if dist_index_thumb < click_distance_threshold:
+                    if not left_click_performed and (current_time - last_left_click_time > click_cooldown_time):
+                        mouse.click(button='left')
+                        print(f"✓ LEFT CLICK! Index-Thumb distance: {int(dist_index_thumb)}px")
+                        left_click_performed = True
+                        last_left_click_time = current_time
+                        
+                        # Visual feedback
+                        cv2.putText(frame, "LEFT CLICK!", (10, 150), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
+                        cv2.circle(frame, (x, y), 25, (0, 255, 255), 3)
+                else:
+                    left_click_performed = False
                 
                 # Display distance for debugging
-                cv2.putText(frame, f"Distance: {int(distance)}", (10, 150), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                cv2.putText(frame, f"Index-Thumb: {int(dist_index_thumb)}px", (10, 180), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            
+            # Mode 2: Middle finger is up -> Check for RIGHT CLICK
+            elif fingers[2] == 1:  # Middle finger up
+                # Get middle finger tip position for cursor tracking
+                x, y = middle_finger_tip[1], middle_finger_tip[2]
                 
-                # Draw a line between the two fingertips for visual feedback
-                cv2.line(frame, 
-                        (index_finger_tip[1], index_finger_tip[2]), 
-                        (middle_finger_tip[1], middle_finger_tip[2]), 
-                        (255, 0, 255), 3)
+                # Map webcam coordinates to screen coordinates
+                screen_x, screen_y = mouse.mapCoordinates(
+                    x, y, frame_width, frame_height,
+                    padding_left=50, padding_right=50,
+                    padding_top=50, padding_bottom=50
+                )
                 
-                cv2.circle(frame, (mid_x, mid_y), 10, (255, 0, 255), cv2.FILLED)
+                # Move the cursor
+                mouse.moveCursor(screen_x, screen_y)
                 
-                # If fingers are close together, perform click
-                # Distance threshold depends on hand size and camera distance
-                click_threshold = 50  # Increased threshold for easier triggering
-                current_time = time.time()
+                # Draw a circle on the middle finger tip
+                cv2.circle(frame, (x, y), 15, (255, 165, 0), cv2.FILLED)
                 
-                if distance < click_threshold:
-                    # Visual feedback - fingers are close enough
-                    cv2.putText(frame, "CLICKING!", (10, 180), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-                    cv2.circle(frame, (mid_x, mid_y), 20, (0, 255, 0), cv2.FILLED)
-                    
-                    # Check cooldown to prevent multiple rapid clicks
-                    if not click_performed and (current_time - last_click_time > click_cooldown_time):
-                        try:
-                            mouse.click(button='left')
-                            print(f"✓ Click performed! Distance: {int(distance)}px")
-                            
-                            # Set flags to prevent multiple clicks
-                            click_performed = True
-                            last_click_time = current_time
-                        except Exception as e:
-                            print(f"Error clicking: {e}")
+                # Display mode indicator
+                cv2.putText(frame, "RIGHT CLICK MODE", (10, 120), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 165, 0), 2)
+                
+                # Check for RIGHT CLICK gesture (Middle + Thumb close)
+                if dist_middle_thumb < click_distance_threshold:
+                    if not right_click_performed and (current_time - last_right_click_time > click_cooldown_time):
+                        mouse.click(button='right')
+                        print(f"✓ RIGHT CLICK! Middle-Thumb distance: {int(dist_middle_thumb)}px")
+                        right_click_performed = True
+                        last_right_click_time = current_time
+                        
+                        # Visual feedback
+                        cv2.putText(frame, "RIGHT CLICK!", (10, 150), 
+                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 100, 255), 2)
+                        cv2.circle(frame, (x, y), 25, (0, 100, 255), 3)
                 else:
-                    # Reset click flag when fingers are apart
-                    click_performed = False
-                    cv2.putText(frame, "Bring fingers closer", (10, 180), 
-                               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+                    right_click_performed = False
+                
+                # Display distance for debugging
+                cv2.putText(frame, f"Middle-Thumb: {int(dist_middle_thumb)}px", (10, 180), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
+            
+            # Mode 3: Check for DOUBLE CLICK gesture (Ring finger folded)
+            if ring_finger_folded and fingers[1] == 1:  # Ring folded and index up
+                if not double_click_performed and (current_time - last_double_click_time > click_cooldown_time):
+                    mouse.doubleClick()
+                    print(f"✓ DOUBLE CLICK! Ring finger folded")
+                    double_click_performed = True
+                    last_double_click_time = current_time
+                    
+                    # Visual feedback
+                    cv2.putText(frame, "DOUBLE CLICK!", (frame_width // 2 - 100, frame_height // 2), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 0, 255), 3)
+            else:
+                if not ring_finger_folded:
+                    double_click_performed = False
         
         else:
             # No hand detected - display message
