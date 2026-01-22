@@ -142,3 +142,40 @@ mouse = MouseController(smoothing_factor=7)  # Higher = smoother but slower
 - **Gestures not working**: Ensure good lighting and hand is clearly visible
 - **False clicks**: Adjust `click_distance_threshold` in main.py
 - **Scroll not working**: Use only pinky finger, move hand more vertically
+## 🤝 Contributing
+
+Contributions are welcome! Feel free to:
+- Report bugs
+- Suggest new features
+- Submit pull requests
+- Improve documentation
+
+## 📄 License
+
+This project is open-source and available for educational and personal use.
+
+## 👨‍💻 Author
+
+Developed with ❤️ using Python, OpenCV, MediaPipe, and PyAutoGUI
+
+## 🙏 Acknowledgments
+
+- **MediaPipe**: Google's hand tracking solution
+- **OpenCV**: Computer vision library
+- **PyAutoGUI**: Cross-platform GUI automation
+
+## 📞 Support
+
+For issues, questions, or suggestions, please refer to:
+- **[INSTRUCTIONS.md](INSTRUCTIONS.md)** - Detailed usage guide
+- **[GESTURE_GUIDE.md](GESTURE_GUIDE.md)** - Gesture reference
+
+---
+
+**Note**: This application requires appropriate webcam permissions and may need firewall/antivirus exceptions for mouse control functionality.
+
+**Enjoy hands-free computing! 🎉**
+
+
+**Happy Gesture Controlling! 🖱️👋**
+
