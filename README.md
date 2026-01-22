@@ -85,3 +85,60 @@ For complete step-by-step instructions, gesture guide, and troubleshooting, see 
 | Ring Finger Folded | Double Click | Fold ring finger while index is up |
 | Pinky Only Up | Scroll Mode | Raise only pinky, move hand up/down |
 | All Fingers Up | Alt Scroll | Open palm, move hand up/down |
+## 📁 Project Structure
+
+```
+Gesture-Control-Interface/
+│
+├── main.py                    # Main application entry point
+├── hand_tracker.py            # Hand detection and tracking module
+├── mouse_controller.py        # Mouse control and coordinate mapping
+├── virtual_keyboard.py        # Virtual keyboard overlay and typing
+├── requirements.txt           # Python dependencies
+├── README.md                  # Project documentation (this file)
+├── INSTRUCTIONS.md           # Detailed user instructions
+├── GESTURE_GUIDE.md          # Gesture reference guide
+└── SMOOTHING_GUIDE.md        # Smoothing configuration guide
+```
+
+## ⚙️ Configuration
+
+### Adjust Hover Time for Virtual Keyboard
+In `main.py`, modify the keyboard initialization:
+```python
+keyboard = VirtualKeyboard(frame_width=640, frame_height=480, hover_threshold=1.0)
+```
+- `hover_threshold=0.5` → Faster (0.5 seconds)
+- `hover_threshold=2.0` → Slower (2 seconds)
+
+### Adjust Cursor Sensitivity
+In `main.py`, modify the padding values:
+```python
+padding_left = 200    # Increase for more sensitivity
+padding_right = 200   # Decrease for less sensitivity
+padding_top = 150
+padding_bottom = 150
+```
+
+### Adjust Smoothing
+In `main.py`, modify the mouse controller:
+```python
+mouse = MouseController(smoothing_factor=7)  # Higher = smoother but slower
+```
+
+## 🐛 Troubleshooting
+
+### Webcam Issues
+- **Webcam not opening**: Check if another application is using the camera
+- **Black screen**: Verify webcam permissions in system settings
+- **Wrong camera**: The app tries camera 0, then camera 1 automatically
+
+### Performance Issues
+- **Low FPS**: Close other applications, ensure good lighting
+- **Cursor jumpy**: Increase `smoothing_factor` in MouseController
+- **Delayed response**: Decrease `smoothing_factor` for faster response
+
+### Gesture Detection
+- **Gestures not working**: Ensure good lighting and hand is clearly visible
+- **False clicks**: Adjust `click_distance_threshold` in main.py
+- **Scroll not working**: Use only pinky finger, move hand more vertically
