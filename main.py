@@ -14,6 +14,7 @@ Gestures:
 import cv2
 import time
 import math
+import numpy as np
 from hand_tracker import HandDetector
 from mouse_controller import MouseController
 
@@ -184,19 +185,23 @@ def main():
             
             current_time = time.time()
             
+            # Define padding for coordinate mapping (used in both Mode 1 and Mode 2)
+            # Larger padding = smaller camera area maps to full screen
+            # Adjust these values: Higher = easier to reach screen edges
+            padding_left = 150
+            padding_right = 150
+            padding_top = 150
+            padding_bottom = 150
+            
             # Mode 1: Only Index finger is up -> Move mouse
             if fingers[1] == 1 and fingers[2] == 0:  # Index up, Middle down
                 # Get index finger tip position
                 x, y = index_finger_tip[1], index_finger_tip[2]
                 
-                # Map webcam coordinates to screen coordinates
-                # Larger padding = smaller camera area maps to full screen
-                # Adjust these values: Higher = easier to reach screen edges
-                screen_x, screen_y = mouse.mapCoordinates(
-                    x, y, frame_width, frame_height,
-                    padding_left=150, padding_right=150,
-                    padding_top=100, padding_bottom=100
-                )
+                screen_x = np.interp(x, [padding_left, frame_width - padding_right], 
+                    [0, mouse.screen_width])
+                screen_y = np.interp(y, [padding_top, frame_height - padding_bottom], 
+                    [0, mouse.screen_height])
                 
                 # Move the cursor
                 mouse.moveCursor(screen_x, screen_y)
@@ -233,11 +238,10 @@ def main():
                 x, y = middle_finger_tip[1], middle_finger_tip[2]
                 
                 # Map webcam coordinates to screen coordinates
-                screen_x, screen_y = mouse.mapCoordinates(
-                    x, y, frame_width, frame_height,
-                    padding_left=150, padding_right=150,
-                    padding_top=100, padding_bottom=100
-                )
+                screen_x = np.interp(x, [padding_left, frame_width - padding_right], 
+                    [0, mouse.screen_width])
+                screen_y = np.interp(y, [padding_top, frame_height - padding_bottom], 
+                    [0, mouse.screen_height])
                 
                 # Move the cursor
                 mouse.moveCursor(screen_x, screen_y)
