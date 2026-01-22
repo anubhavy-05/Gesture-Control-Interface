@@ -17,6 +17,7 @@ import math
 import numpy as np
 from hand_tracker import HandDetector
 from mouse_controller import MouseController
+from virtual_keyboard import VirtualKeyboard
 
 
 def calculate_distance(point1, point2):
@@ -58,6 +59,16 @@ def main():
         print(f"✓ Mouse controller initialized (Screen: {mouse.screen_width}x{mouse.screen_height})")
     except Exception as e:
         print(f"✗ Error initializing mouse controller: {e}")
+        return
+    
+    # Initialize virtual keyboard
+    try:
+        print("\n[2.5/3] Initializing virtual keyboard...")
+        keyboard = VirtualKeyboard(frame_width=640, frame_height=480)
+        keyboard_visible = False  # Start with keyboard hidden
+        print("✓ Virtual keyboard initialized")
+    except Exception as e:
+        print(f"✗ Error initializing virtual keyboard: {e}")
         return
     
     # Initialize webcam
@@ -126,6 +137,10 @@ def main():
     print("  - Index + Thumb close (<30px): Left Click")
     print("  - Middle + Thumb close (<30px): Right Click")
     print("  - Ring finger folded: Double Click")
+    print("\nKeyboard Controls:")
+    print("  - Press 'k' to toggle virtual keyboard")
+    print("  - Hover over a key for 1 second to type")
+    print("  - Or click on a key to type immediately")
     print("Press 'q' to quit.")
     
     while True:
@@ -342,6 +357,39 @@ def main():
             cv2.putText(frame, "No hand detected", (10, 90), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
+        # Virtual Keyboard Overlay and Interaction
+        if keyboard_visible:
+            # Draw keyboard on frame
+            frame = keyboard.draw_keyboard(frame)
+            
+            # Check for keyboard interaction if hand is detected
+            if len(landmark_list) > 0:
+                # Get current cursor position in frame coordinates
+                # Use index finger tip for keyboard interaction
+                if fingers[1] == 1:  # Index finger is up
+                    cursor_x = index_finger_tip[1]
+                    cursor_y = index_finger_tip[2]
+                    
+                    # Check hover on keyboard
+                    hovered_key, hover_progress = keyboard.check_hover(cursor_x, cursor_y)
+                    
+                    if hovered_key:
+                        # Draw hover indicator
+                        frame = keyboard.draw_hover_indicator(frame, hovered_key, hover_progress)
+                    
+                    # Check for click gesture on keyboard
+                    if dist_index_thumb < click_distance_threshold:
+                        if not left_click_performed:
+                            # Perform keyboard click instead of mouse click
+                            clicked_key = keyboard.handle_click(cursor_x, cursor_y)
+            
+            # Show last typed key
+            frame = keyboard.get_typed_text_display(frame)
+            
+            # Display keyboard mode indicator
+            cv2.putText(frame, "KEYBOARD MODE (Press 'k' to hide)", (10, frame_height - 40), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+        
         # Calculate and display FPS
         current_time = time.time()
         fps = 1 / (current_time - prev_time) if (current_time - prev_time) > 0 else 0
@@ -357,10 +405,16 @@ def main():
         # Show the frame
         cv2.imshow("AI Virtual Mouse", frame)
         
-        # Check for quit key
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Check for keyboard input
+        key_press = cv2.waitKey(1) & 0xFF
+        
+        if key_press == ord('q'):
             print("Exiting AI Virtual Mouse...")
             break
+        elif key_press == ord('k'):
+            keyboard_visible = not keyboard_visible
+            status = "visible" if keyboard_visible else "hidden"
+            print(f"✓ Virtual keyboard {status}")
     
     # Release resources
     capture.release()
