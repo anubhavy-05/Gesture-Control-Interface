@@ -19,6 +19,7 @@ from hand_tracker import HandDetector
 from mouse_controller import MouseController
 from virtual_keyboard import VirtualKeyboard
 from voice_control import VoiceController
+from settings_gui import SettingsGUI
 
 
 def calculate_distance(point1, point2):
@@ -61,6 +62,18 @@ def main():
     except Exception as e:
         print(f"✗ Error initializing mouse controller: {e}")
         return
+    
+    # Initialize settings GUI
+    try:
+        print("\n[2.25/3] Initializing settings GUI...")
+        settings_gui = SettingsGUI()
+        settings_gui.start()
+        print("✓ Settings GUI initialized")
+        print("  Note: Settings window will appear alongside the camera view")
+    except Exception as e:
+        print(f"✗ Warning: Could not initialize settings GUI: {e}")
+        print("  Settings GUI will not be available")
+        settings_gui = None
     
     # Initialize virtual keyboard
     try:
@@ -177,7 +190,12 @@ def main():
     print("  - Press 'v' to toggle voice control")
     print("  - Say 'Open Chrome', 'Type Hello', 'Enter', etc.")
     print("  - Say 'Show Keyboard' or 'Hide Keyboard'")
-    print("Press 'q' to quit.")
+    print("\nSettings GUI:")
+    print("  - A separate window is now open with sliders")
+    print("  - Adjust Smoothing Factor to control cursor jitter")
+    print("  - Adjust Mouse Sensitivity to change screen edge reachability")
+    print("  - Changes apply in real-time!")
+    print("\nPress 'q' to quit.")
     
     while True:
         # Capture frame from webcam
@@ -236,18 +254,29 @@ def main():
             
             current_time = time.time()
             
+            # Get dynamic padding from settings GUI (if available)
+            # Default to 150 if settings GUI is not available
+            if settings_gui:
+                padding_value = settings_gui.get_mouse_sensitivity()
+            else:
+                padding_value = 150
+            
             # Define padding for coordinate mapping (used in both Mode 1 and Mode 2)
             # Larger padding = smaller camera area maps to full screen
             # Adjust these values: Higher = easier to reach screen edges
-            padding_left = 150
-            padding_right = 150
-            padding_top = 150
-            padding_bottom = 150
+            padding_left = padding_value
+            padding_right = padding_value
+            padding_top = padding_value
+            padding_bottom = padding_value
             
             # Mode 1: Only Index finger is up -> Move mouse
             if fingers[1] == 1 and fingers[2] == 0:  # Index up, Middle down
                 # Get index finger tip position
                 x, y = index_finger_tip[1], index_finger_tip[2]
+                
+                # Update mouse controller smoothing factor from settings GUI
+                if settings_gui:
+                    mouse.smoothing_factor = settings_gui.get_smoothing_factor()
                 
                 screen_x = np.interp(x, [padding_left, frame_width - padding_right], 
                     [0, mouse.screen_width])
@@ -287,6 +316,10 @@ def main():
             elif fingers[2] == 1:  # Middle finger up
                 # Get middle finger tip position for cursor tracking
                 x, y = middle_finger_tip[1], middle_finger_tip[2]
+                
+                # Update mouse controller smoothing factor from settings GUI
+                if settings_gui:
+                    mouse.smoothing_factor = settings_gui.get_smoothing_factor()
                 
                 # Map webcam coordinates to screen coordinates
                 screen_x = np.interp(x, [padding_left, frame_width - padding_right], 
@@ -451,6 +484,12 @@ def main():
         cv2.putText(frame, "Press 'q' to quit", (10, 60), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         
+        # Display current settings from GUI (if available)
+        if settings_gui:
+            settings_text = f"Smoothing: {settings_gui.get_smoothing_factor()} | Sensitivity: {settings_gui.get_mouse_sensitivity()}px"
+            cv2.putText(frame, settings_text, (10, 90), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 255, 255), 1)
+        
         # Show the frame
         cv2.imshow("AI Virtual Mouse", frame)
         
@@ -480,6 +519,10 @@ def main():
     if voice and voice_active:
         print("Stopping voice control...")
         voice.stop_listening()
+    
+    if settings_gui:
+        print("Closing settings GUI...")
+        settings_gui.stop()
     
     capture.release()
     cv2.destroyAllWindows()
