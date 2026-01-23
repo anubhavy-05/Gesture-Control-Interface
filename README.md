@@ -19,6 +19,14 @@ A computer vision-based virtual mouse control system that allows you to control 
 - **Visual Feedback**: Progress bars and typed key display
 - **Special Keys**: SPACE, ENTER, BACKSPACE support
 
+### 🎤 Voice Control
+- **Open Applications**: Say "Open Chrome", "Open Notepad", "Open Calculator"
+- **Type Text**: Say "Type [your text]" to type anything
+- **Keyboard Actions**: Say "Enter", "Backspace", "Escape", "Space", "Tab"
+- **Keyboard Control**: Say "Show Keyboard" or "Hide Keyboard"
+- **Background Threading**: Runs independently without affecting video performance
+- **No Video Lag**: Voice recognition in separate thread maintains 25-30 FPS
+
 ### 🎯 Advanced Features
 - **Smooth Cursor Movement**: Advanced smoothing algorithms prevent jitter
 - **Frame Reduction Mapping**: Central camera area maps to full screen (no need to reach edges)
@@ -49,6 +57,14 @@ A computer vision-based virtual mouse control system that allows you to control 
    - mediapipe
    - pyautogui
    - numpy
+   - SpeechRecognition (for voice control)
+   - pyaudio (for microphone access)
+
+   **Note**: If `pyaudio` installation fails on Windows:
+   ```bash
+   pip install pipwin
+   pipwin install pyaudio
+   ```
 
 3. **Verify installation**:
    ```bash
@@ -68,8 +84,15 @@ A computer vision-based virtual mouse control system that allows you to control 
    - Point with index finger to move cursor
    - Pinch index and thumb to left-click
    - Press `k` to show/hide virtual keyboard
+   - Press `v` to toggle voice control
 
-4. **Exit**: Press `q` to quit the application
+4. **Use voice commands** (after pressing `v`):
+   - "Open Chrome"
+   - "Type Hello World"
+   - "Enter"
+   - "Show Keyboard"
+
+5. **Exit**: Press `q` to quit the application
 
 ## 📚 Detailed Instructions
 
@@ -85,6 +108,21 @@ For complete step-by-step instructions, gesture guide, and troubleshooting, see 
 | Ring Finger Folded | Double Click | Fold ring finger while index is up |
 | Pinky Only Up | Scroll Mode | Raise only pinky, move hand up/down |
 | All Fingers Up | Alt Scroll | Open palm, move hand up/down |
+
+## 🎤 Voice Commands Reference
+
+| Command | Action | Examples |
+|---------|--------|----------|
+| Open [App] | Open application | "Open Chrome", "Open Notepad", "Open Calculator" |
+| Type [Text] | Type text | "Type Hello", "Type example@email.com" |
+| Enter | Press Enter key | "Enter", "Return" |
+| Backspace | Press Backspace | "Backspace", "Delete", "Back Space" |
+| Escape | Press Escape key | "Escape", "Cancel" |
+| Space | Press Space key | "Space", "Spacebar" |
+| Tab | Press Tab key | "Tab" |
+| Show Keyboard | Show virtual keyboard | "Show Keyboard", "Open Keyboard" |
+| Hide Keyboard | Hide virtual keyboard | "Hide Keyboard", "Close Keyboard" |
+| Stop Listening | Stop voice control | "Stop Listening", "Stop Voice" |
 ## 📁 Project Structure
 
 ```
@@ -94,11 +132,14 @@ Gesture-Control-Interface/
 ├── hand_tracker.py            # Hand detection and tracking module
 ├── mouse_controller.py        # Mouse control and coordinate mapping
 ├── virtual_keyboard.py        # Virtual keyboard overlay and typing
+├── voice_control.py           # Voice command recognition (threaded)
 ├── requirements.txt           # Python dependencies
 ├── README.md                  # Project documentation (this file)
 ├── INSTRUCTIONS.md           # Detailed user instructions
 ├── GESTURE_GUIDE.md          # Gesture reference guide
-└── SMOOTHING_GUIDE.md        # Smoothing configuration guide
+├── SMOOTHING_GUIDE.md        # Smoothing configuration guide
+├── VOICE_CONTROL_GUIDE.md    # Voice control technical documentation
+└── VOICE_SETUP.md            # Voice control quick setup
 ```
 
 ## ⚙️ Configuration
@@ -142,6 +183,13 @@ mouse = MouseController(smoothing_factor=7)  # Higher = smoother but slower
 - **Gestures not working**: Ensure good lighting and hand is clearly visible
 - **False clicks**: Adjust `click_distance_threshold` in main.py
 - **Scroll not working**: Use only pinky finger, move hand more vertically
+
+### Voice Control Issues
+- **Voice not available**: Install dependencies: `pip install SpeechRecognition pyaudio`
+- **Microphone not detected**: Check microphone permissions in system settings
+- **Commands not recognized**: Speak clearly, ensure good internet connection (uses Google API)
+- **PyAudio installation fails**: Use `pip install pipwin` then `pipwin install pyaudio` (Windows)
+- See [VOICE_CONTROL_GUIDE.md](VOICE_CONTROL_GUIDE.md) for detailed troubleshooting
 ## 🤝 Contributing
 
 Contributions are welcome! Feel free to:
@@ -169,6 +217,8 @@ Developed with ❤️ using Python, OpenCV, MediaPipe, and PyAutoGUI
 For issues, questions, or suggestions, please refer to:
 - **[INSTRUCTIONS.md](INSTRUCTIONS.md)** - Detailed usage guide
 - **[GESTURE_GUIDE.md](GESTURE_GUIDE.md)** - Gesture reference
+- **[VOICE_CONTROL_GUIDE.md](VOICE_CONTROL_GUIDE.md)** - Voice control technical guide
+- **[VOICE_SETUP.md](VOICE_SETUP.md)** - Quick voice setup instructions
 
 ---
 
