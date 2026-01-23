@@ -28,6 +28,10 @@ A computer vision-based virtual mouse control system that allows you to control 
 - **No Video Lag**: Voice recognition in separate thread maintains 25-30 FPS
 
 ### 🎯 Advanced Features
+- **Settings GUI**: Real-time control panel with sliders to adjust:
+  - Smoothing Factor (1-20): Control cursor jitter and responsiveness
+  - Mouse Sensitivity (50-300px): Adjust frame reduction margin for screen edge reachability
+  - Changes apply instantly without restarting the application!
 - **Smooth Cursor Movement**: Advanced smoothing algorithms prevent jitter
 - **Frame Reduction Mapping**: Central camera area maps to full screen (no need to reach edges)
 - **Real-time FPS Display**: Monitor performance
@@ -133,11 +137,13 @@ Gesture-Control-Interface/
 ├── mouse_controller.py        # Mouse control and coordinate mapping
 ├── virtual_keyboard.py        # Virtual keyboard overlay and typing
 ├── voice_control.py           # Voice command recognition (threaded)
+├── settings_gui.py            # Settings GUI with real-time sliders (NEW!)
 ├── requirements.txt           # Python dependencies
 ├── README.md                  # Project documentation (this file)
 ├── INSTRUCTIONS.md           # Detailed user instructions
 ├── GESTURE_GUIDE.md          # Gesture reference guide
 ├── SMOOTHING_GUIDE.md        # Smoothing configuration guide
+├── SETTINGS_GUI_GUIDE.md     # Settings GUI usage and tips (NEW!)
 ├── VOICE_CONTROL_GUIDE.md    # Voice control technical documentation
 └── VOICE_SETUP.md            # Voice control quick setup
 ```
@@ -162,6 +168,17 @@ padding_bottom = 150
 ```
 
 ### Adjust Smoothing
+**Now easier with Settings GUI!** 🎛️
+
+When you run the application, a Settings window will automatically open with sliders to adjust:
+- **Smoothing Factor** (1-20): Control cursor jitter and responsiveness
+- **Mouse Sensitivity** (50-300px): Adjust screen edge reachability
+
+Changes apply **instantly in real-time** - no restart needed!
+
+For detailed usage, see **[SETTINGS_GUI_GUIDE.md](SETTINGS_GUI_GUIDE.md)**
+
+**Or manually in code:**
 In `main.py`, modify the mouse controller:
 ```python
 mouse = MouseController(smoothing_factor=7)  # Higher = smoother but slower
