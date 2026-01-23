@@ -18,6 +18,7 @@ import numpy as np
 from hand_tracker import HandDetector
 from mouse_controller import MouseController
 from virtual_keyboard import VirtualKeyboard
+from voice_control import VoiceController
 
 
 def calculate_distance(point1, point2):
@@ -70,6 +71,37 @@ def main():
     except Exception as e:
         print(f"✗ Error initializing virtual keyboard: {e}")
         return
+    
+    # Voice status variables
+    voice_last_command = ""
+    voice_command_time = 0
+    
+    # Voice callback function to handle voice commands and status
+    def voice_callback(message):
+        nonlocal voice_last_command, voice_command_time, keyboard_visible
+        voice_last_command = message
+        voice_command_time = time.time()
+        
+        # Handle special keyboard commands
+        if message == "SHOW_KEYBOARD":
+            keyboard_visible = True
+        elif message == "HIDE_KEYBOARD":
+            keyboard_visible = False
+    
+    # Initialize voice controller
+    try:
+        print("\n[2.75/3] Initializing voice controller...")
+        voice = VoiceController(callback=voice_callback)
+        voice_active = False  # Start with voice control off
+        print("✓ Voice controller initialized")
+        print("  Note: Voice control is OFF by default")
+        print("  Press 'v' to start/stop voice control")
+    except Exception as e:
+        print(f"✗ Warning: Could not initialize voice controller: {e}")
+        print("  Voice control will not be available")
+        print("  Install: pip install SpeechRecognition pyaudio")
+        voice = None
+        voice_active = False
     
     # Initialize webcam
     print("\n[3/3] Opening webcam...")
@@ -141,6 +173,10 @@ def main():
     print("  - Press 'k' to toggle virtual keyboard")
     print("  - Hover over a key for 1 second to type")
     print("  - Or click on a key to type immediately")
+    print("\nVoice Controls:")
+    print("  - Press 'v' to toggle voice control")
+    print("  - Say 'Open Chrome', 'Type Hello', 'Enter', etc.")
+    print("  - Say 'Show Keyboard' or 'Hide Keyboard'")
     print("Press 'q' to quit.")
     
     while True:
@@ -390,6 +426,19 @@ def main():
             cv2.putText(frame, "KEYBOARD MODE (Press 'k' to hide)", (10, frame_height - 40), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
         
+        # Display voice control status
+        if voice and voice_active:
+            cv2.putText(frame, "VOICE: ON", (frame_width - 150, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            
+            # Display last voice command for 3 seconds
+            if voice_last_command and (time.time() - voice_command_time < 3.0):
+                cv2.putText(frame, f"Voice: {voice_last_command}", (10, frame_height - 70), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        elif voice:
+            cv2.putText(frame, "VOICE: OFF", (frame_width - 150, 30), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (128, 128, 128), 2)
+        
         # Calculate and display FPS
         current_time = time.time()
         fps = 1 / (current_time - prev_time) if (current_time - prev_time) > 0 else 0
@@ -415,8 +464,23 @@ def main():
             keyboard_visible = not keyboard_visible
             status = "visible" if keyboard_visible else "hidden"
             print(f"✓ Virtual keyboard {status}")
+        elif key_press == ord('v'):
+            if voice:
+                voice_active = not voice_active
+                if voice_active:
+                    voice.start_listening()
+                    print("✓ Voice control started")
+                else:
+                    voice.stop_listening()
+                    print("✓ Voice control stopped")
+            else:
+                print("✗ Voice control not available (install: pip install SpeechRecognition pyaudio)")
     
     # Release resources
+    if voice and voice_active:
+        print("Stopping voice control...")
+        voice.stop_listening()
+    
     capture.release()
     cv2.destroyAllWindows()
 
