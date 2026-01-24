@@ -32,6 +32,11 @@ A computer vision-based virtual mouse control system that allows you to control 
   - Smoothing Factor (1-20): Control cursor jitter and responsiveness
   - Mouse Sensitivity (50-300px): Adjust frame reduction margin for screen edge reachability
   - Changes apply instantly without restarting the application!
+- **Enhanced Visual Feedback**: 
+  - Green circle in cursor move mode
+  - **RED circle + "CLICKED!" text** when click happens (0.5s duration)
+  - **Futuristic cyan border** showing active detection area with corner decorations
+  - Real-time settings display on screen
 - **Smooth Cursor Movement**: Advanced smoothing algorithms prevent jitter
 - **Frame Reduction Mapping**: Central camera area maps to full screen (no need to reach edges)
 - **Real-time FPS Display**: Monitor performance
