@@ -161,6 +161,13 @@ def main():
     last_right_click_time = 0
     last_double_click_time = 0
     
+    # Variables for click visual feedback
+    show_left_click_feedback = False
+    show_right_click_feedback = False
+    left_click_feedback_time = 0
+    right_click_feedback_time = 0
+    click_feedback_duration = 0.5  # Duration to show click feedback in seconds
+    
     # Variables for scroll detection
     scroll_mode_active = False
     prev_hand_y = None  # Track previous hand position for scroll detection
@@ -211,6 +218,53 @@ def main():
         
         # Flip frame horizontally for mirror effect (more intuitive)
         frame = cv2.flip(frame, 1)
+        
+        # Draw futuristic rectangle border for active detection area
+        # Get dynamic padding from settings GUI (if available)
+        if settings_gui:
+            border_padding = settings_gui.get_mouse_sensitivity()
+        else:
+            border_padding = 150
+        
+        border_color = (0, 255, 255)  # Cyan color for futuristic look
+        border_thickness = 3
+        corner_length = 30  # Length of corner decorations
+        
+        # Draw main rectangle
+        cv2.rectangle(frame, 
+                     (border_padding, border_padding), 
+                     (frame_width - border_padding, frame_height - border_padding), 
+                     border_color, border_thickness)
+        
+        # Draw futuristic corner decorations (L-shaped corners)
+        # Top-left corner
+        cv2.line(frame, (border_padding - 10, border_padding), 
+                (border_padding + corner_length, border_padding), border_color, border_thickness + 2)
+        cv2.line(frame, (border_padding, border_padding - 10), 
+                (border_padding, border_padding + corner_length), border_color, border_thickness + 2)
+        
+        # Top-right corner
+        cv2.line(frame, (frame_width - border_padding + 10, border_padding), 
+                (frame_width - border_padding - corner_length, border_padding), border_color, border_thickness + 2)
+        cv2.line(frame, (frame_width - border_padding, border_padding - 10), 
+                (frame_width - border_padding, border_padding + corner_length), border_color, border_thickness + 2)
+        
+        # Bottom-left corner
+        cv2.line(frame, (border_padding - 10, frame_height - border_padding), 
+                (border_padding + corner_length, frame_height - border_padding), border_color, border_thickness + 2)
+        cv2.line(frame, (border_padding, frame_height - border_padding + 10), 
+                (border_padding, frame_height - border_padding - corner_length), border_color, border_thickness + 2)
+        
+        # Bottom-right corner
+        cv2.line(frame, (frame_width - border_padding + 10, frame_height - border_padding), 
+                (frame_width - border_padding - corner_length, frame_height - border_padding), border_color, border_thickness + 2)
+        cv2.line(frame, (frame_width - border_padding, frame_height - border_padding + 10), 
+                (frame_width - border_padding, frame_height - border_padding - corner_length), border_color, border_thickness + 2)
+        
+        # Add label for detection area
+        cv2.putText(frame, "ACTIVE DETECTION AREA", 
+                   (border_padding + 10, border_padding - 15), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, border_color, 1)
         
         # Detect hands and draw landmarks
         frame = detector.findHands(frame, draw=True)
@@ -286,8 +340,22 @@ def main():
                 # Move the cursor
                 mouse.moveCursor(screen_x, screen_y)
                 
-                # Draw a circle on the index finger tip for visual feedback
-                cv2.circle(frame, (x, y), 15, (0, 255, 0), cv2.FILLED)
+                # Check if we should show click feedback (red color)
+                if show_left_click_feedback and (current_time - left_click_feedback_time < click_feedback_duration):
+                    # Draw RED circle when clicked
+                    cv2.circle(frame, (x, y), 20, (0, 0, 255), cv2.FILLED)
+                    cv2.circle(frame, (x, y), 25, (0, 0, 255), 3)
+                    
+                    # Display "CLICKED" text in the center of screen
+                    text = "CLICKED!"
+                    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 2, 3)[0]
+                    text_x = (frame_width - text_size[0]) // 2
+                    text_y = (frame_height + text_size[1]) // 2
+                    cv2.putText(frame, text, (text_x, text_y), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+                else:
+                    # Draw GREEN circle for normal move mode
+                    cv2.circle(frame, (x, y), 15, (0, 255, 0), cv2.FILLED)
                 
                 # Display cursor mode indicator
                 cv2.putText(frame, "MOVE MODE", (10, 120), 
@@ -301,12 +369,14 @@ def main():
                         left_click_performed = True
                         last_left_click_time = current_time
                         
-                        # Visual feedback
-                        cv2.putText(frame, "LEFT CLICK!", (10, 150), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 255), 2)
-                        cv2.circle(frame, (x, y), 25, (0, 255, 255), 3)
+                        # Activate click visual feedback
+                        show_left_click_feedback = True
+                        left_click_feedback_time = current_time
                 else:
                     left_click_performed = False
+                    # Disable feedback when fingers separate
+                    if current_time - left_click_feedback_time > click_feedback_duration:
+                        show_left_click_feedback = False
                 
                 # Display distance for debugging
                 cv2.putText(frame, f"Index-Thumb: {int(dist_index_thumb)}px", (10, 180), 
@@ -330,8 +400,22 @@ def main():
                 # Move the cursor
                 mouse.moveCursor(screen_x, screen_y)
                 
-                # Draw a circle on the middle finger tip
-                cv2.circle(frame, (x, y), 15, (255, 165, 0), cv2.FILLED)
+                # Check if we should show click feedback (red color)
+                if show_right_click_feedback and (current_time - right_click_feedback_time < click_feedback_duration):
+                    # Draw RED circle when clicked
+                    cv2.circle(frame, (x, y), 20, (0, 0, 255), cv2.FILLED)
+                    cv2.circle(frame, (x, y), 25, (0, 0, 255), 3)
+                    
+                    # Display "CLICKED" text in the center of screen
+                    text = "RIGHT CLICKED!"
+                    text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 2, 3)[0]
+                    text_x = (frame_width - text_size[0]) // 2
+                    text_y = (frame_height + text_size[1]) // 2
+                    cv2.putText(frame, text, (text_x, text_y), 
+                               cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 3)
+                else:
+                    # Draw ORANGE circle for right click mode
+                    cv2.circle(frame, (x, y), 15, (255, 165, 0), cv2.FILLED)
                 
                 # Display mode indicator
                 cv2.putText(frame, "RIGHT CLICK MODE", (10, 120), 
@@ -345,12 +429,14 @@ def main():
                         right_click_performed = True
                         last_right_click_time = current_time
                         
-                        # Visual feedback
-                        cv2.putText(frame, "RIGHT CLICK!", (10, 150), 
-                                   cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 100, 255), 2)
-                        cv2.circle(frame, (x, y), 25, (0, 100, 255), 3)
+                        # Activate click visual feedback
+                        show_right_click_feedback = True
+                        right_click_feedback_time = current_time
                 else:
                     right_click_performed = False
+                    # Disable feedback when fingers separate
+                    if current_time - right_click_feedback_time > click_feedback_duration:
+                        show_right_click_feedback = False
                 
                 # Display distance for debugging
                 cv2.putText(frame, f"Middle-Thumb: {int(dist_middle_thumb)}px", (10, 180), 
