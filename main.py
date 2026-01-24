@@ -1,4 +1,34 @@
 """
+================================================================================
+                        GESTURE CONTROL INTERFACE
+                    AI Virtual Mouse with Hand Tracking
+================================================================================
+
+Copyright (c) 2026 ANUBHAV YADAV (B. Tech)
+All Rights Reserved.
+
+INTELLECTUAL PROPERTY NOTICE:
+This software and associated documentation files (the "Software") are the
+exclusive intellectual property of ANUBHAV YADAV.
+
+LICENSE TERMS:
+This Software is proprietary and confidential. Unauthorized copying, 
+modification, distribution, or use of this Software, via any medium, 
+is strictly prohibited without express written permission from the 
+copyright holder.
+
+RESTRICTIONS:
+- No part of this Software may be reproduced, distributed, or transmitted
+  in any form or by any means without prior written authorization.
+- Reverse engineering, decompilation, or disassembly is prohibited.
+- Commercial use requires explicit licensing agreement.
+
+For licensing inquiries or permissions, contact: ANUBHAV YADAV
+
+================================================================================
+"""
+
+"""
 AI Virtual Mouse - Main Entry Point
 Control your mouse cursor using hand gestures captured through your webcam.
 
@@ -575,6 +605,30 @@ def main():
             settings_text = f"Smoothing: {settings_gui.get_smoothing_factor()} | Sensitivity: {settings_gui.get_mouse_sensitivity()}px"
             cv2.putText(frame, settings_text, (10, 90), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (100, 255, 255), 1)
+        
+        # Add permanent watermark - Developer credit
+        watermark_text = "Developed by [ANUBHAV YADAV(B. tech)]"
+        font = cv2.FONT_HERSHEY_COMPLEX
+        font_scale = 0.45
+        font_thickness = 1
+        color = (0, 0, 255)  # Red color in BGR format
+        
+        # Get text size to position it at bottom-right
+        text_size = cv2.getTextSize(watermark_text, font, font_scale, font_thickness)[0]
+        text_x = frame_width - text_size[0] - 10  # 10px padding from right edge
+        text_y = frame_height - 10  # 10px padding from bottom
+        
+        # Add semi-transparent background for better visibility
+        overlay = frame.copy()
+        cv2.rectangle(overlay, 
+                     (text_x - 5, text_y - text_size[1] - 5), 
+                     (text_x + text_size[0] + 5, text_y + 5), 
+                     (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.3, frame, 0.7, 0, frame)
+        
+        # Draw the watermark text
+        cv2.putText(frame, watermark_text, (text_x, text_y), 
+                   font, font_scale, color, font_thickness, cv2.LINE_AA)
         
         # Show the frame
         cv2.imshow("AI Virtual Mouse", frame)
