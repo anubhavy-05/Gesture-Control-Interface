@@ -276,7 +276,84 @@ def show_menu():
             return 'ESC'
 
 
-
+def main():
+    """
+    Main entry point for the Real-Time Frame Puzzle game.
+    """
+    print("=" * 80)
+    print("🧩 Real-Time Frame Puzzle - Starting...")
+    print("=" * 80)
+    
+    # Show menu and get user choice
+    choice = show_menu()
+    
+    if choice == 'ESC':
+        print("\n[INFO] Exiting game. Goodbye!")
+        return
+    
+    # Initialize frame capture
+    frame_capture = FrameCapture()
+    source_frame = None
+    
+    try:
+        if choice == 'W':
+            # Capture from webcam
+            print("\n[INFO] Webcam capture mode selected")
+            source_frame = frame_capture.capture_from_webcam()
+            
+        elif choice == 'F':
+            # Load from file
+            print("\n[INFO] File load mode selected")
+            
+            # For this implementation, use a test path or ask user
+            # You can modify this to use a file dialog
+            filepath = input("Enter image file path (or press Enter for demo): ").strip()
+            
+            if filepath == "":
+                print("[INFO] No file path provided")
+                # You could add a default test image path here
+                print("[INFO] Please provide a valid image path to continue")
+                return
+            
+            source_frame = frame_capture.load_from_file(filepath)
+        
+        # Check if frame was captured/loaded
+        if source_frame is None:
+            print("\n[ERROR] Failed to obtain source frame!")
+            return
+        
+        # Preprocess the frame
+        print("\n[INFO] Preprocessing frame...")
+        processed_frame = frame_capture.preprocess_frame(source_frame, target_size=(600, 600))
+        
+        if processed_frame is None:
+            print("[ERROR] Frame preprocessing failed!")
+            return
+        
+        # Add visual feedback - green border
+        display_frame = processed_frame.copy()
+        cv2.rectangle(display_frame, (0, 0), (599, 599), (0, 255, 0), 5)
+        
+        # Add success message overlay
+        cv2.rectangle(display_frame, (10, 10), (590, 80), (0, 255, 0), -1)
+        cv2.putText(display_frame, "Frame Captured Successfully!", 
+                   (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(display_frame, f"Dimensions: 600x600", 
+                   (30, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
+        
+        # Display the processed frame
+        cv2.imshow("Puzzle Source Image", display_frame)
+        
+        print("\n" + "=" * 80)
+        print("[SUCCESS] Frame ready for puzzle generation!")
+        print(f"[INFO] Frame dimensions: 600x600 pixels")
+        print("[INFO] Press any key to close...")
+        print("=" * 80 + "\n")
+        
+        # Wait for key press
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        
         # TODO: Implement puzzle generation from frame
         # TODO: Integrate hand gesture detection and tracking
         # TODO: Add drag & drop piece movement
