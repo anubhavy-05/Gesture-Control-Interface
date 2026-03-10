@@ -215,6 +215,262 @@ class FrameCapture:
             print("[INFO] Webcam resources released")
 
 
+class PuzzlePiece:
+    """
+    Represents a single puzzle piece with position and image data.
+    """
+    
+    def __init__(self, piece_id, image, original_pos, current_pos, rect):
+        """
+        Initialize a puzzle piece.
+        
+        Args:
+            piece_id (int): Unique identifier for the piece
+            image (numpy.ndarray): Image data for this piece
+            original_pos (tuple): Original (row, col) position
+            current_pos (tuple): Current (row, col) position
+            rect (tuple): Rendering rectangle (x, y, width, height)
+        """
+        self.id = piece_id
+        self.image = image
+        self.original_position = original_pos
+        self.current_position = current_pos
+        self.rect = rect  # (x, y, width, height)
+    
+    def is_correct_position(self):
+        """
+        Check if piece is in its correct position.
+        
+        Returns:
+            bool: True if current position matches original position
+        """
+        return self.current_position == self.original_position
+
+
+class PuzzleGrid:
+    """
+    Manages the puzzle grid, pieces, and rendering.
+    """
+    
+    def __init__(self, source_image, grid_size=3):
+        """
+        Initialize the puzzle grid.
+        
+        Args:
+            source_image (numpy.ndarray): 600x600 source image
+            grid_size (int): Number of rows/columns (3, 4, or 5)
+        """
+        self.source_image = source_image
+        self.grid_size = grid_size
+        self.pieces = []
+        self.piece_width = 600 // grid_size
+        self.piece_height = 600 // grid_size
+        self.canvas_size = 700
+        self.offset = 50  # Padding for centering
+        
+        print(f"[INFO] PuzzleGrid initialized with {grid_size}×{grid_size} grid")
+    
+    def create_pieces(self):
+        """
+        Split source image into grid pieces and create PuzzlePiece objects.
+        """
+        print(f"\n[INFO] Creating puzzle pieces...")
+        print(f"[INFO] Grid size: {self.grid_size}×{self.grid_size}")
+        print(f"[INFO] Piece dimensions: {self.piece_width}×{self.piece_height} pixels")
+        
+        piece_id = 1
+        
+        for row in range(self.grid_size):
+            for col in range(self.grid_size):
+                # Calculate pixel coordinates for slicing
+                y1 = row * self.piece_height
+                y2 = y1 + self.piece_height
+                x1 = col * self.piece_width
+                x2 = x1 + self.piece_width
+                
+                # Extract piece from source image
+                piece_image = self.source_image[y1:y2, x1:x2].copy()
+                
+                # Calculate rendering position (with offset for centering)
+                rect_x = self.offset + col * self.piece_width
+                rect_y = self.offset + row * self.piece_height
+                rect = (rect_x, rect_y, self.piece_width, self.piece_height)
+                
+                # Create puzzle piece
+                piece = PuzzlePiece(
+                    piece_id=piece_id,
+                    image=piece_image,
+                    original_pos=(row, col),
+                    current_pos=(row, col),
+                    rect=rect
+                )
+                
+                self.pieces.append(piece)
+                
+                print(f"[DEBUG] Piece {piece_id}: pos({row},{col}), rect{rect}")
+                
+                piece_id += 1
+        
+        total_pieces = len(self.pieces)
+        print(f"[SUCCESS] Created {total_pieces} puzzle pieces!")
+        
+        return total_pieces
+    
+    def draw_grid(self, show_numbers=True, show_info=True):
+        """
+        Render the puzzle grid with all pieces.
+        
+        Args:
+            show_numbers (bool): Display piece numbers for debugging
+            show_info (bool): Show grid information overlay
+            
+        Returns:
+            numpy.ndarray: Rendered canvas with puzzle
+        """
+        # Create black canvas
+        canvas = np.zeros((self.canvas_size, self.canvas_size, 3), dtype=np.uint8)
+        
+        # Draw all pieces
+        for piece in self.pieces:
+            x, y, w, h = piece.rect
+            
+            # Place piece image on canvas
+            canvas[y:y+h, x:x+w] = piece.image
+            
+            # Draw piece border (white)
+            cv2.rectangle(canvas, (x, y), (x+w, y+h), (255, 255, 255), 2)
+            
+            # Optionally show piece numbers
+            if show_numbers:
+                # Add piece number in top-left corner
+                cv2.putText(canvas, str(piece.id), 
+                           (x + 5, y + 20), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 
+                           0.5, (0, 255, 255), 2)
+        
+        # Draw outer border around entire puzzle
+        border_x1 = self.offset
+        border_y1 = self.offset
+        border_x2 = self.offset + (self.grid_size * self.piece_width)
+        border_y2 = self.offset + (self.grid_size * self.piece_height)
+        cv2.rectangle(canvas, (border_x1, border_y1), (border_x2, border_y2), 
+                     (0, 255, 0), 3)
+        
+        # Add grid information overlay
+        if show_info:
+            difficulty_map = {3: "EASY", 4: "MEDIUM", 5: "HARD"}
+            color_map = {3: (0, 255, 0), 4: (0, 255, 255), 5: (0, 0, 255)}
+            
+            difficulty = difficulty_map.get(self.grid_size, "CUSTOM")
+            color = color_map.get(self.grid_size, (255, 255, 255))
+            
+            # Info panel at bottom
+            info_y = self.canvas_size - 40
+            cv2.putText(canvas, f"{self.grid_size}x{self.grid_size} Grid | {len(self.pieces)} Pieces | {difficulty}", 
+                       (50, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+        
+        return canvas
+    
+    def get_piece_info(self):
+        """
+        Get information about the puzzle grid.
+        
+        Returns:
+            dict: Dictionary with grid statistics
+        """
+        info = {
+            'grid_size': self.grid_size,
+            'total_pieces': len(self.pieces),
+            'piece_width': self.piece_width,
+            'piece_height': self.piece_height,
+            'canvas_size': self.canvas_size
+        }
+        
+        print("\n" + "=" * 60)
+        print("PUZZLE GRID INFORMATION")
+        print("=" * 60)
+        print(f"Grid Size:      {info['grid_size']}×{info['grid_size']}")
+        print(f"Total Pieces:   {info['total_pieces']}")
+        print(f"Piece Size:     {info['piece_width']}×{info['piece_height']} pixels")
+        print(f"Canvas Size:    {info['canvas_size']}×{info['canvas_size']} pixels")
+        print("=" * 60 + "\n")
+        
+        return info
+
+
+def select_difficulty():
+    """
+    Display difficulty selection menu and get user's choice.
+    
+    Returns:
+        int: Selected grid size (3, 4, or 5), or None if cancelled
+    """
+    # Create difficulty menu canvas
+    menu = np.zeros((600, 800, 3), dtype=np.uint8)
+    
+    # Add title
+    cv2.putText(menu, "SELECT DIFFICULTY", 
+                (200, 100), cv2.FONT_HERSHEY_DUPLEX, 1.5, (0, 255, 255), 3)
+    
+    # Add decorative line
+    cv2.line(menu, (100, 130), (700, 130), (0, 255, 255), 2)
+    
+    # Add instructions
+    cv2.putText(menu, "Choose puzzle grid size:", 
+                (180, 180), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 255, 255), 2)
+    
+    # Option 1: Easy (3×3)
+    cv2.rectangle(menu, (150, 220), (650, 280), (0, 255, 0), 3)
+    cv2.putText(menu, "Press '3' - EASY (3x3 Grid = 9 pieces)", 
+                (180, 255), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    
+    # Option 2: Medium (4×4)
+    cv2.rectangle(menu, (150, 300), (650, 360), (0, 255, 255), 3)
+    cv2.putText(menu, "Press '4' - MEDIUM (4x4 Grid = 16 pieces)", 
+                (180, 335), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+    
+    # Option 3: Hard (5×5)
+    cv2.rectangle(menu, (150, 380), (650, 440), (0, 0, 255), 3)
+    cv2.putText(menu, "Press '5' - HARD (5x5 Grid = 25 pieces)", 
+                (180, 415), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    
+    # Option 4: Back
+    cv2.rectangle(menu, (150, 460), (650, 510), (128, 128, 128), 2)
+    cv2.putText(menu, "Press 'ESC' - Go Back", 
+                (180, 490), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (128, 128, 128), 2)
+    
+    # Add footer
+    cv2.putText(menu, "Higher difficulty = More pieces = Harder puzzle", 
+                (150, 560), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+    
+    # Show menu
+    cv2.imshow("Difficulty Selection", menu)
+    
+    print("\n[MENU] Select difficulty level...")
+    print("[MENU] Press '3' (Easy), '4' (Medium), '5' (Hard), or 'ESC' (Back)")
+    
+    # Wait for user input
+    while True:
+        key = cv2.waitKey(1) & 0xFF
+        
+        if key == ord('3'):
+            cv2.destroyAllWindows()
+            print("[INFO] Easy mode selected (3×3)")
+            return 3
+        elif key == ord('4'):
+            cv2.destroyAllWindows()
+            print("[INFO] Medium mode selected (4×4)")
+            return 4
+        elif key == ord('5'):
+            cv2.destroyAllWindows()
+            print("[INFO] Hard mode selected (5×5)")
+            return 5
+        elif key == 27:  # ESC
+            cv2.destroyAllWindows()
+            print("[INFO] Difficulty selection cancelled")
+            return None
+
+
 def show_menu():
     """
     Display main menu and get user choice.
@@ -341,24 +597,59 @@ def main():
         cv2.putText(display_frame, f"Dimensions: 600x600", 
                    (30, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
         
-        # Display the processed frame
+        # Display the processed frame briefly
         cv2.imshow("Puzzle Source Image", display_frame)
         
         print("\n" + "=" * 80)
         print("[SUCCESS] Frame ready for puzzle generation!")
         print(f"[INFO] Frame dimensions: 600x600 pixels")
-        print("[INFO] Press any key to close...")
+        print("[INFO] Press any key to continue...")
         print("=" * 80 + "\n")
         
         # Wait for key press
-        cv2.waitKey(0)
+        cv2.waitKey(2000)  # Show for 2 seconds
         cv2.destroyAllWindows()
         
-        # TODO: Implement puzzle generation from frame
+        # ✅ COMMIT 3: Puzzle Grid Creation
+        # Select difficulty level
+        grid_size = select_difficulty()
+        
+        if grid_size is None:
+            print("[INFO] Returning to main menu...")
+            return
+        
+        # Create puzzle grid
+        print("\n[INFO] Initializing puzzle grid...")
+        puzzle = PuzzleGrid(processed_frame, grid_size=grid_size)
+        
+        # Create puzzle pieces by splitting the image
+        total_pieces = puzzle.create_pieces()
+        
+        # Get and display puzzle information
+        puzzle_info = puzzle.get_piece_info()
+        
+        # Draw the initial puzzle grid (unsolved state)
+        print("[INFO] Rendering puzzle grid...")
+        puzzle_canvas = puzzle.draw_grid(show_numbers=True, show_info=True)
+        
+        # Display the puzzle grid
+        cv2.imshow("Puzzle Grid - Unsolved", puzzle_canvas)
+        
+        print("\n" + "=" * 80)
+        print("[SUCCESS] Puzzle grid created successfully!")
+        print(f"[INFO] Grid: {grid_size}×{grid_size} | Pieces: {total_pieces} | Size: {puzzle.piece_width}×{puzzle.piece_height}px")
+        print("[INFO] Press any key to continue...")
+        print("=" * 80 + "\n")
+        
+        # Wait for key press (show for at least 3 seconds)
+        cv2.waitKey(3000)
+        cv2.destroyAllWindows()
+        
+        # TODO: Implement puzzle shuffling logic
         # TODO: Integrate hand gesture detection and tracking
         # TODO: Add drag & drop piece movement
         # TODO: Implement game loop with win condition
-        # TODO: Add UI elements (timer, moves counter, difficulty selector)
+        # TODO: Add UI elements (timer, moves counter)
         
     except Exception as e:
         print(f"\n[ERROR] Unexpected error in main: {e}")
