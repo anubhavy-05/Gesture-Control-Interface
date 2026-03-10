@@ -1,0 +1,15 @@
+# Real-Time Frame Puzzle - Python Dependencies
+# Author: ANUBHAV YADAV
+# Date: March 10, 2026
+
+# OpenCV - Computer vision library for image processing, webcam capture,
+# and display functionality
+opencv-python>=4.8.0
+
+# NumPy - Fundamental package for numerical computing and array operations,
+# used for image manipulation and puzzle piece management
+numpy>=1.24.0
+
+# MediaPipe - Google's ML framework for hand tracking and gesture recognition
+# (Used via parent directory's HandDetector module)
+mediapipe>=0.10.0
