@@ -355,15 +355,36 @@ class PuzzleGrid:
             border_color = (255, 255, 255)
             border_thickness = 2
             
-            # Check if this piece should be highlighted
+            # Check if this piece should be highlighted or selected
             if highlighted_piece and piece.id == highlighted_piece.id:
-                border_color = (0, 255, 255)  # Yellow highlight
-                border_thickness = 4
+                # Check if this is the selected piece (grabbed)
+                is_selected = (hasattr(self, '_selected_piece_id') and 
+                              self._selected_piece_id == piece.id)
                 
-                # Add pulsing glow effect
-                overlay = canvas.copy()
-                cv2.rectangle(overlay, (x-5, y-5), (x+w+5, y+h+5), (0, 255, 255), -1)
-                cv2.addWeighted(overlay, 0.2, canvas, 0.8, 0, canvas)
+                if is_selected:
+                    # SELECTED STATE: Bright yellow, thicker border, stronger glow
+                    border_color = (0, 255, 255)  # Bright yellow
+                    border_thickness = 6
+                    
+                    # Add stronger pulsing glow effect (40% opacity)
+                    overlay = canvas.copy()
+                    cv2.rectangle(overlay, (x-8, y-8), (x+w+8, y+h+8), (0, 255, 255), -1)
+                    cv2.addWeighted(overlay, 0.4, canvas, 0.6, 0, canvas)
+                    
+                    # Add "lifted" effect with slight scale
+                    # Draw shadow underneath
+                    shadow_offset = 5
+                    cv2.rectangle(canvas, (x+shadow_offset, y+shadow_offset), 
+                                (x+w+shadow_offset, y+h+shadow_offset), (30, 30, 30), -1)
+                else:
+                    # HOVER STATE: Yellow, normal border, light glow
+                    border_color = (0, 255, 255)  # Yellow highlight
+                    border_thickness = 4
+                    
+                    # Add light glow effect (20% opacity)
+                    overlay = canvas.copy()
+                    cv2.rectangle(overlay, (x-5, y-5), (x+w+5, y+h+5), (0, 255, 255), -1)
+                    cv2.addWeighted(overlay, 0.2, canvas, 0.8, 0, canvas)
             
             # Draw piece border
             cv2.rectangle(canvas, (x, y), (x+w, y+h), border_color, border_thickness)
@@ -590,6 +611,13 @@ class GestureController:
         self.pinch_state = False
         self.last_landmarks = None
         
+        # Commit 6: Selection state variables
+        self.selected_piece = None
+        self.piece_grabbed = False
+        self.grab_offset = (0, 0)  # Offset from piece center to finger
+        self.last_pinch_state = False  # For edge detection
+        self.hand_lost_timer = 0  # Auto-release if hand lost
+        
         print("[INFO] GestureController initialized")
     
     def start_webcam(self):
@@ -813,6 +841,56 @@ class GestureController:
         
         return frame
     
+    def snap_to_nearest_grid(self, piece):
+        """
+        Snap piece to nearest valid grid position.
+        
+        Args:
+            piece (PuzzlePiece): Piece to snap to grid
+            
+        Returns:
+            tuple: (row, col) of snapped grid position
+        """
+        if piece is None:
+            return None
+        
+        # Get piece center
+        piece_center_x = piece.rect[0] + piece.rect[2] // 2
+        piece_center_y = piece.rect[1] + piece.rect[3] // 2
+        
+        # Get grid parameters
+        piece_width = self.puzzle_grid.piece_width
+        piece_height = self.puzzle_grid.piece_height
+        offset = self.puzzle_grid.offset
+        grid_size = self.puzzle_grid.grid_size
+        
+        # Calculate which grid cell the piece center is in
+        # Subtract offset to get relative position
+        rel_x = piece_center_x - offset
+        rel_y = piece_center_y - offset
+        
+        # Find nearest grid cell
+        col = round(rel_x / piece_width)
+        row = round(rel_y / piece_height)
+        
+        # Clamp to valid grid range
+        col = max(0, min(col, grid_size - 1))
+        row = max(0, min(row, grid_size - 1))
+        
+        # Calculate snapped position (top-left corner)
+        snapped_x = offset + (col * piece_width)
+        snapped_y = offset + (row * piece_height)
+        
+        # Debug logging
+        print(f"[DEBUG] Snap to grid: ({piece.rect[0]}, {piece.rect[1]}) → ({snapped_x}, {snapped_y})")
+        print(f"[INFO] Piece {piece.id} placed at grid position (row {row}, col {col})")
+        
+        # Update piece position
+        piece.current_position = (row, col)
+        piece.rect = (snapped_x, snapped_y, piece_width, piece_height)
+        
+        return (row, col)
+    
     def release(self):
         """Release webcam and cleanup resources."""
         if self.webcam is not None:
@@ -821,7 +899,8 @@ class GestureController:
 
 
 def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=None, 
-                                  finger_pos=None, pinch_state=False, fps=0):
+                                  finger_pos=None, pinch_state=False, fps=0, 
+                                  selected_piece=None, piece_grabbed=False):
     """
     Create split-screen display with puzzle and hand tracking.
     
@@ -864,15 +943,28 @@ def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=No
     cv2.rectangle(overlay, (0, 650), (1340, 700), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.8, display, 0.2, 0, display)
     
-    instructions = "Point to select | Pinch to grab | Move to drag | Q=Quit"
-    cv2.putText(display, instructions, 
-                (320, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    # Update instructions based on state
+    if piece_grabbed and selected_piece:
+        instructions = f"Piece {selected_piece.id} GRABBED | Release to place | Q=Quit"
+        instruction_color = (0, 0, 255)  # Red when grabbed
+    else:
+        instructions = "Point to hover | Pinch to grab | Move to drag | Q=Quit"
+        instruction_color = (0, 255, 255)  # Yellow normal
     
-    # Add piece info if piece is under finger
-    if piece_under_finger:
-        info_text = f"Piece {piece_under_finger.id} selected"
+    cv2.putText(display, instructions, 
+                (280, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.7, instruction_color, 2)
+    
+    # Add piece info based on state
+    if piece_grabbed and selected_piece:
+        info_text = f"HOLDING: Piece {selected_piece.id}"
+        info_color = (0, 0, 255)  # Red
         cv2.putText(display, info_text, 
-                   (20, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                   (20, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, info_color, 2)
+    elif piece_under_finger:
+        info_text = f"HOVER: Piece {piece_under_finger.id}"
+        info_color = (0, 255, 0)  # Green
+        cv2.putText(display, info_text, 
+                   (20, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, info_color, 2)
     
     # Add FPS counter
     if fps > 0:
@@ -1325,7 +1417,71 @@ def main():
                 
                 # Get piece under finger
                 piece_under_finger = gesture_controller.get_piece_under_finger(puzzle_coords)
-                highlighted_piece = piece_under_finger
+                
+                # COMMIT 6: Pinch edge detection and piece selection
+                # Detect pinch rising edge (not pinching → pinching)
+                pinch_pressed = is_pinching and not gesture_controller.last_pinch_state
+                # Detect pinch falling edge (pinching → not pinching)
+                pinch_released = not is_pinching and gesture_controller.last_pinch_state
+                
+                # Handle piece selection on pinch
+                if pinch_pressed and piece_under_finger and not gesture_controller.piece_grabbed:
+                    # Grab piece
+                    gesture_controller.selected_piece = piece_under_finger
+                    gesture_controller.piece_grabbed = True
+                    
+                    # Calculate grab offset (finger position relative to piece center)
+                    piece_center_x = piece_under_finger.rect[0] + piece_under_finger.rect[2] // 2
+                    piece_center_y = piece_under_finger.rect[1] + piece_under_finger.rect[3] // 2
+                    
+                    if puzzle_coords:
+                        gesture_controller.grab_offset = (
+                            puzzle_coords[0] - piece_center_x,
+                            puzzle_coords[1] - piece_center_y
+                        )
+                    else:
+                        gesture_controller.grab_offset = (0, 0)
+                    
+                    print(f"[INFO] Piece {piece_under_finger.id} selected")
+                    print(f"[DEBUG] Grab offset: {gesture_controller.grab_offset}")
+                
+                # Handle piece release on pinch release
+                if pinch_released and gesture_controller.piece_grabbed:
+                    if gesture_controller.selected_piece:
+                        # Snap piece to nearest grid position
+                        gesture_controller.snap_to_nearest_grid(gesture_controller.selected_piece)
+                        
+                        # Release piece
+                        gesture_controller.selected_piece = None
+                        gesture_controller.piece_grabbed = False
+                        gesture_controller.grab_offset = (0, 0)
+                        print("[INFO] Piece released and snapped to grid")
+                
+                # Auto-release if hand lost while holding piece
+                if gesture_controller.piece_grabbed and not landmarks:
+                    gesture_controller.hand_lost_timer += 1
+                    if gesture_controller.hand_lost_timer > 10:  # ~1 second at 10 FPS
+                        print("[WARNING] Hand lost, auto-releasing piece")
+                        if gesture_controller.selected_piece:
+                            gesture_controller.snap_to_nearest_grid(gesture_controller.selected_piece)
+                        gesture_controller.selected_piece = None
+                        gesture_controller.piece_grabbed = False
+                        gesture_controller.hand_lost_timer = 0
+                else:
+                    gesture_controller.hand_lost_timer = 0
+                
+                # Update last pinch state for edge detection
+                gesture_controller.last_pinch_state = is_pinching
+                
+                # Determine which piece to highlight
+                if gesture_controller.piece_grabbed and gesture_controller.selected_piece:
+                    highlighted_piece = gesture_controller.selected_piece
+                else:
+                    highlighted_piece = piece_under_finger
+                
+                # Set selected piece ID for draw_grid to use
+                puzzle._selected_piece_id = (gesture_controller.selected_piece.id 
+                                            if gesture_controller.selected_piece else None)
                 
                 # Draw puzzle grid with highlighted piece
                 puzzle_canvas = puzzle.draw_grid(highlighted_piece=highlighted_piece)
@@ -1340,7 +1496,9 @@ def main():
                     piece_under_finger=highlighted_piece,
                     finger_pos=finger_pos,
                     pinch_state=is_pinching,
-                    fps=fps
+                    fps=fps,
+                    selected_piece=gesture_controller.selected_piece,
+                    piece_grabbed=gesture_controller.piece_grabbed
                 )
                 
                 # Show display
