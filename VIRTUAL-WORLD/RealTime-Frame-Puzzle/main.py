@@ -328,7 +328,7 @@ class PuzzleGrid:
         
         return total_pieces
     
-    def draw_grid(self, show_numbers=True, show_info=True, show_state=True):
+    def draw_grid(self, show_numbers=True, show_info=True, show_state=True, highlighted_piece=None):
         """
         Render the puzzle grid with all pieces.
         
@@ -336,6 +336,7 @@ class PuzzleGrid:
             show_numbers (bool): Display piece numbers for debugging
             show_info (bool): Show grid information overlay
             show_state (bool): Show puzzle state (SHUFFLED/SOLVED)
+            highlighted_piece (PuzzlePiece): Piece to highlight (for hand tracking)
             
         Returns:
             numpy.ndarray: Rendered canvas with puzzle
@@ -350,8 +351,22 @@ class PuzzleGrid:
             # Place piece image on canvas
             canvas[y:y+h, x:x+w] = piece.image
             
-            # Draw piece border (white)
-            cv2.rectangle(canvas, (x, y), (x+w, y+h), (255, 255, 255), 2)
+            # Draw piece border (white by default)
+            border_color = (255, 255, 255)
+            border_thickness = 2
+            
+            # Check if this piece should be highlighted
+            if highlighted_piece and piece.id == highlighted_piece.id:
+                border_color = (0, 255, 255)  # Yellow highlight
+                border_thickness = 4
+                
+                # Add pulsing glow effect
+                overlay = canvas.copy()
+                cv2.rectangle(overlay, (x-5, y-5), (x+w+5, y+h+5), (0, 255, 255), -1)
+                cv2.addWeighted(overlay, 0.2, canvas, 0.8, 0, canvas)
+            
+            # Draw piece border
+            cv2.rectangle(canvas, (x, y), (x+w, y+h), border_color, border_thickness)
             
             # Optionally show piece numbers
             if show_numbers:
@@ -1239,22 +1254,137 @@ def main():
         
         # If we get here, user chose 'START'
         print("\n" + "=" * 80)
-        print("GAME STARTING")
+        print("GAME STARTING - HAND GESTURE MODE")
         print("=" * 80)
-        print("[INFO] Hand gesture controls will be implemented in Commit 5")
-        print("[INFO] For now, press any key to exit...")
+        
+        # Check if hand tracking is available
+        if not HAND_TRACKING_AVAILABLE:
+            print("[ERROR] Hand tracking not available!")
+            print("[INFO] Please install required dependencies:")
+            print("       pip install mediapipe")
+            print("[INFO] Make sure hand_tracker.py exists in parent directory")
+            cv2.waitKey(3000)
+            cv2.destroyAllWindows()
+            return
+        
+        # Initialize gesture controller
+        gesture_controller = GestureController(puzzle)
+        
+        # Start webcam for hand tracking
+        print("[INFO] Starting hand tracking...")
+        if not gesture_controller.start_webcam():
+            print("[ERROR] Failed to start hand tracking webcam!")
+            print("[INFO] Exiting to menu...")
+            cv2.waitKey(3000)
+            cv2.destroyAllWindows()
+            return
+        
+        print("[INFO] Hand tracking initialized successfully!")
+        print("[INFO] Point your index finger to select pieces")
+        print("[INFO] Pinch (thumb + index) to grab pieces")
+        print("[INFO] Press 'Q' to quit")
         print("=" * 80 + "\n")
         
-        cv2.imshow("Puzzle - Game Mode", shuffled_canvas)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        # Game loop variables
+        fps_start_time = cv2.getTickCount()
+        fps = 0
+        frame_count = 0
+        highlighted_piece = None
         
-        # TODO: Integrate hand gesture detection and tracking (Commit 5)
+        # Main game loop
+        try:
+            while True:
+                # Calculate FPS
+                frame_count += 1
+                if frame_count >= 10:
+                    fps_end_time = cv2.getTickCount()
+                    time_diff = (fps_end_time - fps_start_time) / cv2.getTickFrequency()
+                    fps = frame_count / time_diff
+                    fps_start_time = fps_end_time
+                    frame_count = 0
+                
+                # Get hand frame and landmarks
+                hand_frame, landmarks = gesture_controller.get_hand_frame()
+                
+                if hand_frame is None:
+                    print("[WARNING] Failed to read hand frame, retrying...")
+                    cv2.waitKey(100)
+                    continue
+                
+                # Get finger position and check pinch
+                finger_pos = gesture_controller.get_finger_position(landmarks)
+                is_pinching = gesture_controller.is_pinching(landmarks)
+                
+                # Map finger position to puzzle coordinates
+                puzzle_coords = None
+                if finger_pos:
+                    puzzle_coords = gesture_controller.map_to_puzzle_coords(
+                        finger_pos[0], finger_pos[1]
+                    )
+                    gesture_controller.current_finger_pos = finger_pos
+                
+                # Get piece under finger
+                piece_under_finger = gesture_controller.get_piece_under_finger(puzzle_coords)
+                highlighted_piece = piece_under_finger
+                
+                # Draw puzzle grid with highlighted piece
+                puzzle_canvas = puzzle.draw_grid(highlighted_piece=highlighted_piece)
+                
+                # Draw overlay on hand frame
+                hand_frame = gesture_controller.draw_hand_overlay(hand_frame)
+                
+                # Create split-screen display
+                display = create_split_screen_display(
+                    puzzle_canvas,
+                    hand_frame,
+                    piece_under_finger=highlighted_piece,
+                    finger_pos=finger_pos,
+                    pinch_state=is_pinching,
+                    fps=fps
+                )
+                
+                # Show display
+                cv2.imshow("RealTime Frame Puzzle - Gesture Control", display)
+                
+                # Check for win condition
+                if puzzle.is_solved():
+                    print("\n" + "=" * 80)
+                    print("🎉 CONGRATULATIONS! PUZZLE SOLVED! 🎉")
+                    print("=" * 80 + "\n")
+                    
+                    # Show victory message on display
+                    overlay = display.copy()
+                    cv2.rectangle(overlay, (300, 250), (1040, 450), (0, 255, 0), -1)
+                    cv2.addWeighted(overlay, 0.7, display, 0.3, 0, display)
+                    
+                    cv2.putText(display, "PUZZLE SOLVED!", 
+                               (380, 330), cv2.FONT_HERSHEY_DUPLEX, 2.5, (255, 255, 255), 4)
+                    cv2.putText(display, "Press any key to exit", 
+                               (460, 400), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+                    
+                    cv2.imshow("RealTime Frame Puzzle - Gesture Control", display)
+                    cv2.waitKey(0)
+                    break
+                
+                # Handle keyboard input
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q') or key == ord('Q'):
+                    print("[INFO] Quit requested by user")
+                    break
+        
+        except KeyboardInterrupt:
+            print("\n[INFO] Interrupted by user (Ctrl+C)")
+        
+        finally:
+            # Cleanup
+            gesture_controller.release()
+            cv2.destroyAllWindows()
+            print("[INFO] Game session ended")
+        
         # TODO: Add piece selection & snap mechanism (Commit 6)
         # TODO: Add drag & drop piece movement (Commit 7)
         # TODO: Add piece swapping logic (Commit 8)
-        # TODO: Implement game loop with win condition (Commit 9)
-        # TODO: Add UI elements (timer, moves counter, difficulty selector) (Commit 10)
+        # TODO: Add UI elements (timer, moves counter) (Commit 10)
         
     except Exception as e:
         print(f"\n[ERROR] Unexpected error in main: {e}")
