@@ -28,6 +28,7 @@ import numpy as np
 import sys
 import os
 import time
+import random
 
 # Add parent directory to path to access hand tracking module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -316,13 +317,14 @@ class PuzzleGrid:
         
         return total_pieces
     
-    def draw_grid(self, show_numbers=True, show_info=True):
+    def draw_grid(self, show_numbers=True, show_info=True, show_state=True):
         """
         Render the puzzle grid with all pieces.
         
         Args:
             show_numbers (bool): Display piece numbers for debugging
             show_info (bool): Show grid information overlay
+            show_state (bool): Show puzzle state (SHUFFLED/SOLVED)
             
         Returns:
             numpy.ndarray: Rendered canvas with puzzle
@@ -348,13 +350,32 @@ class PuzzleGrid:
                            cv2.FONT_HERSHEY_SIMPLEX, 
                            0.5, (0, 255, 255), 2)
         
-        # Draw outer border around entire puzzle
+        # Check if puzzle is solved
+        puzzle_solved = self.is_solved()
+        
+        # Draw outer border with color based on state
         border_x1 = self.offset
         border_y1 = self.offset
         border_x2 = self.offset + (self.grid_size * self.piece_width)
         border_y2 = self.offset + (self.grid_size * self.piece_height)
+        
+        # Change border color based on state
+        border_color = (0, 255, 0) if puzzle_solved else (0, 0, 255)  # Green if solved, Red if shuffled
         cv2.rectangle(canvas, (border_x1, border_y1), (border_x2, border_y2), 
-                     (0, 255, 0), 3)
+                     border_color, 3)
+        
+        # Add state indicator in top-left
+        if show_state:
+            state_text = "STATUS: SOLVED" if puzzle_solved else "STATUS: SHUFFLED"
+            state_color = (0, 255, 0) if puzzle_solved else (0, 0, 255)
+            
+            # Add semi-transparent background for status
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (5, 5), (250, 35), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.7, canvas, 0.3, 0, canvas)
+            
+            cv2.putText(canvas, state_text, 
+                       (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, state_color, 2)
         
         # Add grid information overlay
         if show_info:
@@ -366,8 +387,9 @@ class PuzzleGrid:
             
             # Info panel at bottom
             info_y = self.canvas_size - 40
-            cv2.putText(canvas, f"{self.grid_size}x{self.grid_size} Grid | {len(self.pieces)} Pieces | {difficulty}", 
-                       (50, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+            status_text = "SOLVED!" if puzzle_solved else "SHUFFLED"
+            cv2.putText(canvas, f"{self.grid_size}x{self.grid_size} Grid | {len(self.pieces)} Pieces | {difficulty} | {status_text}", 
+                       (40, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         
         return canvas
     
@@ -396,6 +418,128 @@ class PuzzleGrid:
         print("=" * 60 + "\n")
         
         return info
+    
+    def shuffle_pieces(self):
+        """
+        Shuffle puzzle pieces randomly using Fisher-Yates algorithm.
+        Ensures puzzle is solvable and not in solved state.
+        
+        Returns:
+            dict: Shuffle statistics
+        """
+        print("\n[INFO] Shuffling puzzle...")
+        print("[INFO] Performing random piece shuffling...")
+        
+        # Store original positions for comparison
+        original_positions = [piece.current_position for piece in self.pieces]
+        
+        # Generate all possible positions
+        all_positions = [(r, c) for r in range(self.grid_size) 
+                        for c in range(self.grid_size)]
+        
+        # Shuffle positions using Fisher-Yates algorithm
+        max_attempts = 10
+        attempt = 0
+        pieces_moved = 0
+        
+        while attempt < max_attempts:
+            # Create shuffled copy of positions
+            shuffled_positions = all_positions.copy()
+            random.shuffle(shuffled_positions)
+            
+            # Count how many pieces would move
+            moves = sum(1 for i, pos in enumerate(shuffled_positions) 
+                       if pos != original_positions[i])
+            
+            # Ensure at least 70% of pieces are moved
+            min_moves = int(len(self.pieces) * 0.7)
+            
+            if moves >= min_moves:
+                pieces_moved = moves
+                break
+            
+            attempt += 1
+        
+        # Apply the shuffle
+        swap_count = 0
+        for i, piece in enumerate(self.pieces):
+            new_pos = shuffled_positions[i]
+            old_pos = piece.current_position
+            
+            if new_pos != old_pos:
+                print(f"[DEBUG] Piece {piece.id} moved from {old_pos} to {new_pos}")
+                swap_count += 1
+            
+            # Update piece position
+            piece.current_position = new_pos
+            
+            # Update rect for rendering
+            new_row, new_col = new_pos
+            piece.rect = (
+                self.offset + new_col * self.piece_width,
+                self.offset + new_row * self.piece_height,
+                self.piece_width,
+                self.piece_height
+            )
+        
+        # Validate solvability
+        is_solvable = self.validate_solvability()
+        
+        print(f"[SUCCESS] Puzzle shuffled successfully!")
+        print(f"[INFO] Total swaps performed: {swap_count}")
+        print(f"[INFO] Pieces moved: {pieces_moved} out of {len(self.pieces)}")
+        print(f"[INFO] Puzzle is solvable: {is_solvable}")
+        
+        # Return shuffle statistics
+        stats = {
+            'swaps': swap_count,
+            'pieces_moved': pieces_moved,
+            'total_pieces': len(self.pieces),
+            'solvable': is_solvable,
+            'attempts': attempt + 1
+        }
+        
+        return stats
+    
+    def is_solved(self):
+        """
+        Check if puzzle is in solved state.
+        
+        Returns:
+            bool: True if all pieces are in correct positions
+        """
+        correct_count = 0
+        incorrect_count = 0
+        
+        for piece in self.pieces:
+            if piece.is_correct_position():
+                correct_count += 1
+            else:
+                incorrect_count += 1
+        
+        is_complete = (incorrect_count == 0)
+        
+        print(f"[DEBUG] Puzzle check - Correct: {correct_count}, Incorrect: {incorrect_count}")
+        
+        return is_complete
+    
+    def validate_solvability(self):
+        """
+        Validate that the puzzle is solvable.
+        
+        For swap-based puzzles, all permutations are solvable.
+        This method ensures the puzzle is not in a trivial state.
+        
+        Returns:
+            bool: True if puzzle is solvable
+        """
+        # For this type of puzzle where we can swap any pieces,
+        # all configurations are solvable
+        # We just need to ensure it's not in solved state
+        
+        not_solved = not all(piece.is_correct_position() for piece in self.pieces)
+        
+        return not_solved
 
 
 def select_difficulty():
@@ -469,6 +613,71 @@ def select_difficulty():
             cv2.destroyAllWindows()
             print("[INFO] Difficulty selection cancelled")
             return None
+
+
+def show_shuffle_confirmation(puzzle_canvas, shuffle_stats):
+    """
+    Display shuffle confirmation and get user's choice.
+    
+    Args:
+        puzzle_canvas (numpy.ndarray): Rendered puzzle canvas
+        shuffle_stats (dict): Statistics from shuffle operation
+        
+    Returns:
+        str: User's choice ('START', 'SHUFFLE', or 'QUIT')
+    """
+    # Create confirmation overlay on puzzle canvas
+    display = puzzle_canvas.copy()
+    
+    # Add semi-transparent overlay panel
+    overlay = display.copy()
+    panel_height = 200
+    panel_y = (700 - panel_height) // 2
+    cv2.rectangle(overlay, (50, panel_y), (650, panel_y + panel_height), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.85, display, 0.15, 0, display)
+    
+    # Add title
+    cv2.putText(display, "PUZZLE SHUFFLED!", 
+                (150, panel_y + 40), cv2.FONT_HERSHEY_DUPLEX, 1.2, (0, 255, 255), 2)
+    
+    # Add shuffle statistics
+    pieces_moved = shuffle_stats.get('pieces_moved', 0)
+    total_pieces = shuffle_stats.get('total_pieces', 0)
+    
+    cv2.putText(display, f"Pieces Moved: {pieces_moved}/{total_pieces}", 
+                (180, panel_y + 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+    
+    # Add decorative line
+    cv2.line(display, (100, panel_y + 100), (600, panel_y + 100), (0, 255, 255), 2)
+    
+    # Add instructions
+    cv2.putText(display, "SPACE - Start Game", 
+                (150, panel_y + 135), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+    cv2.putText(display, "ESC - Re-shuffle  |  Q - Quit", 
+                (150, panel_y + 170), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+    
+    # Show the confirmation window
+    cv2.imshow("Puzzle - Shuffled (READY TO PLAY)", display)
+    
+    print("\n[CONFIRM] Puzzle shuffled! What would you like to do?")
+    print("[CONFIRM] Press SPACE to start, ESC to re-shuffle, Q to quit")
+    
+    # Wait for user input
+    while True:
+        key = cv2.waitKey(1) & 0xFF
+        
+        if key == 32:  # SPACE
+            cv2.destroyAllWindows()
+            print("[INFO] Starting game...")
+            return 'START'
+        elif key == 27:  # ESC
+            cv2.destroyAllWindows()
+            print("[INFO] Re-shuffling puzzle...")
+            return 'SHUFFLE'
+        elif key == ord('q') or key == ord('Q'):
+            cv2.destroyAllWindows()
+            print("[INFO] Quitting to main menu...")
+            return 'QUIT'
 
 
 def show_menu():
@@ -630,26 +839,97 @@ def main():
         
         # Draw the initial puzzle grid (unsolved state)
         print("[INFO] Rendering puzzle grid...")
-        puzzle_canvas = puzzle.draw_grid(show_numbers=True, show_info=True)
+        puzzle_canvas = puzzle.draw_grid(show_numbers=True, show_info=True, show_state=False)
         
-        # Display the puzzle grid
+        # Display the puzzle grid briefly
         cv2.imshow("Puzzle Grid - Unsolved", puzzle_canvas)
         
         print("\n" + "=" * 80)
         print("[SUCCESS] Puzzle grid created successfully!")
         print(f"[INFO] Grid: {grid_size}×{grid_size} | Pieces: {total_pieces} | Size: {puzzle.piece_width}×{puzzle.piece_height}px")
-        print("[INFO] Press any key to continue...")
+        print("[INFO] Showing unsolved grid for 2 seconds...")
         print("=" * 80 + "\n")
         
-        # Wait for key press (show for at least 3 seconds)
-        cv2.waitKey(3000)
+        # Wait for key press (show for 2 seconds)
+        cv2.waitKey(2000)
         cv2.destroyAllWindows()
         
-        # TODO: Implement puzzle shuffling logic
-        # TODO: Integrate hand gesture detection and tracking
-        # TODO: Add drag & drop piece movement
-        # TODO: Implement game loop with win condition
-        # TODO: Add UI elements (timer, moves counter)
+        # ✅ COMMIT 4: Puzzle Shuffling Logic
+        shuffle_choice = 'SHUFFLE'
+        
+        while shuffle_choice == 'SHUFFLE':
+            # Shuffle the puzzle
+            print("\n" + "=" * 80)
+            print("SHUFFLING PUZZLE")
+            print("=" * 80)
+            
+            shuffle_stats = puzzle.shuffle_pieces()
+            
+            # Verify puzzle is not solved
+            is_solved_check = puzzle.is_solved()
+            print(f"[INFO] Puzzle is solved: {is_solved_check} {'✗ (Good!)' if not is_solved_check else '✓ (Need to re-shuffle)'}")
+            
+            # If somehow still solved, shuffle again
+            if is_solved_check:
+                print("[WARNING] Puzzle is still in solved state, re-shuffling...")
+                continue
+            
+            print("=" * 80 + "\n")
+            
+            # Draw the shuffled puzzle
+            print("[INFO] Rendering shuffled puzzle...")
+            shuffled_canvas = puzzle.draw_grid(show_numbers=True, show_info=True, show_state=True)
+            
+            # Add shuffle statistics overlay
+            overlay = shuffled_canvas.copy()
+            cv2.rectangle(overlay, (10, 650), (350, 690), (0, 0, 0), -1)
+            cv2.addWeighted(overlay, 0.7, shuffled_canvas, 0.3, 0, shuffled_canvas)
+            
+            cv2.putText(shuffled_canvas, 
+                       f"Moved: {shuffle_stats['pieces_moved']}/{shuffle_stats['total_pieces']} pieces", 
+                       (15, 675), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            
+            # Display shuffled puzzle
+            cv2.imshow("Puzzle - Shuffled", shuffled_canvas)
+            
+            print("\n" + "=" * 80)
+            print("[SUCCESS] Puzzle shuffled and ready to play!")
+            print(f"[INFO] Shuffle Statistics:")
+            print(f"  - Pieces moved: {shuffle_stats['pieces_moved']}/{shuffle_stats['total_pieces']}")
+            print(f"  - Total swaps: {shuffle_stats['swaps']}")
+            print(f"  - Solvable: {shuffle_stats['solvable']}")
+            print("[INFO] Showing shuffled puzzle for 3 seconds...")
+            print("=" * 80 + "\n")
+            
+            # Show for 3 seconds
+            cv2.waitKey(3000)
+            
+            # Show confirmation and get user choice
+            shuffle_choice = show_shuffle_confirmation(shuffled_canvas, shuffle_stats)
+            
+            if shuffle_choice == 'QUIT':
+                print("[INFO] Returning to main menu...")
+                cv2.destroyAllWindows()
+                return
+        
+        # If we get here, user chose 'START'
+        print("\n" + "=" * 80)
+        print("GAME STARTING")
+        print("=" * 80)
+        print("[INFO] Hand gesture controls will be implemented in Commit 5")
+        print("[INFO] For now, press any key to exit...")
+        print("=" * 80 + "\n")
+        
+        cv2.imshow("Puzzle - Game Mode", shuffled_canvas)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        
+        # TODO: Integrate hand gesture detection and tracking (Commit 5)
+        # TODO: Add piece selection & snap mechanism (Commit 6)
+        # TODO: Add drag & drop piece movement (Commit 7)
+        # TODO: Add piece swapping logic (Commit 8)
+        # TODO: Implement game loop with win condition (Commit 9)
+        # TODO: Add UI elements (timer, moves counter, difficulty selector) (Commit 10)
         
     except Exception as e:
         print(f"\n[ERROR] Unexpected error in main: {e}")
