@@ -553,6 +553,320 @@ class PuzzleGrid:
         return not_solved
 
 
+class GestureController:
+    """
+    Manages hand gesture detection and tracking for puzzle interaction.
+    """
+    
+    def __init__(self, puzzle_grid):
+        """
+        Initialize gesture controller with puzzle grid reference.
+        
+        Args:
+            puzzle_grid (PuzzleGrid): Reference to the puzzle grid
+        """
+        self.puzzle_grid = puzzle_grid
+        self.hand_detector = None
+        self.webcam = None
+        self.frame_width = 640
+        self.frame_height = 480
+        self.puzzle_bounds = (0, 0, 700, 700)  # Puzzle area bounds
+        self.current_finger_pos = None
+        self.pinch_state = False
+        self.last_landmarks = None
+        
+        print("[INFO] GestureController initialized")
+    
+    def start_webcam(self):
+        """
+        Open webcam for hand tracking.
+        
+        Returns:
+            bool: True if webcam opened successfully
+        """
+        if not HAND_TRACKING_AVAILABLE:
+            print("[ERROR] Hand tracking not available!")
+            return False
+        
+        try:
+            # Initialize hand detector
+            self.hand_detector = HandDetector(max_hands=1, detection_confidence=0.7)
+            print("[INFO] HandDetector initialized")
+            
+            # Open webcam
+            self.webcam = cv2.VideoCapture(0)
+            
+            if not self.webcam.isOpened():
+                print("[ERROR] Could not open webcam for hand tracking!")
+                return False
+            
+            # Set webcam resolution
+            self.webcam.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_width)
+            self.webcam.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
+            
+            print(f"[INFO] Webcam opened for hand tracking ({self.frame_width}x{self.frame_height})")
+            return True
+            
+        except Exception as e:
+            print(f"[ERROR] Failed to start webcam: {e}")
+            return False
+    
+    def get_hand_frame(self):
+        """
+        Read frame from webcam and detect hands.
+        
+        Returns:
+            tuple: (frame, landmarks) or (None, None) if failed
+        """
+        if self.webcam is None or not self.webcam.isOpened():
+            return None, None
+        
+        try:
+            ret, frame = self.webcam.read()
+            
+            if not ret:
+                return None, None
+            
+            # Flip frame horizontally for mirror effect
+            frame = cv2.flip(frame, 1)
+            
+            # Detect hands
+            frame, landmarks = self.hand_detector.find_hands(frame, draw=True)
+            
+            # Store landmarks for later use
+            self.last_landmarks = landmarks
+            
+            return frame, landmarks
+            
+        except Exception as e:
+            print(f"[ERROR] Error reading frame: {e}")
+            return None, None
+    
+    def get_finger_position(self, landmarks):
+        """
+        Get index finger tip coordinates.
+        
+        Args:
+            landmarks (list): Hand landmarks from MediaPipe
+            
+        Returns:
+            tuple: (x, y) coordinates of index finger tip, or None
+        """
+        if not landmarks or len(landmarks) == 0:
+            return None
+        
+        try:
+            # Index finger tip is landmark 8
+            hand_data = landmarks[0]
+            if 'lmList' in hand_data and len(hand_data['lmList']) > 8:
+                landmark = hand_data['lmList'][8]
+                return (landmark[0], landmark[1])
+            
+            return None
+            
+        except Exception as e:
+            print(f"[DEBUG] Error getting finger position: {e}")
+            return None
+    
+    def is_pinching(self, landmarks):
+        """
+        Check if thumb and index finger are close (pinch gesture).
+        
+        Args:
+            landmarks (list): Hand landmarks from MediaPipe
+            
+        Returns:
+            bool: True if pinching (distance < 30px)
+        """
+        if not landmarks or len(landmarks) == 0:
+            return False
+        
+        try:
+            hand_data = landmarks[0]
+            if 'lmList' in hand_data:
+                lm_list = hand_data['lmList']
+                
+                # Thumb tip (4) and index finger tip (8)
+                if len(lm_list) > 8:
+                    thumb_tip = lm_list[4]
+                    index_tip = lm_list[8]
+                    
+                    # Calculate distance
+                    distance = np.sqrt(
+                        (thumb_tip[0] - index_tip[0])**2 + 
+                        (thumb_tip[1] - index_tip[1])**2
+                    )
+                    
+                    self.pinch_state = distance < 30
+                    return self.pinch_state
+            
+            return False
+            
+        except Exception as e:
+            print(f"[DEBUG] Error checking pinch: {e}")
+            return False
+    
+    def map_to_puzzle_coords(self, hand_x, hand_y):
+        """
+        Map webcam coordinates to puzzle grid coordinates.
+        
+        Args:
+            hand_x (int): X coordinate from webcam (0-640)
+            hand_y (int): Y coordinate from webcam (0-480)
+            
+        Returns:
+            tuple: (puzzle_x, puzzle_y) or None if outside bounds
+        """
+        if hand_x is None or hand_y is None:
+            return None
+        
+        # Map webcam coords (640x480) to puzzle coords (700x700)
+        # Scale down slightly to account for ratio difference
+        puzzle_x = int(hand_x * (700 / 640))
+        puzzle_y = int(hand_y * (700 / 480))
+        
+        # Check if within puzzle bounds
+        if 0 <= puzzle_x < 700 and 0 <= puzzle_y < 700:
+            return (puzzle_x, puzzle_y)
+        
+        return None
+    
+    def get_piece_under_finger(self, puzzle_coords):
+        """
+        Get puzzle piece at the given puzzle coordinates.
+        
+        Args:
+            puzzle_coords (tuple): (x, y) coordinates in puzzle space
+            
+        Returns:
+            PuzzlePiece: Piece at position, or None
+        """
+        if puzzle_coords is None:
+            return None
+        
+        puzzle_x, puzzle_y = puzzle_coords
+        
+        # Check each piece to see if coords fall within its rect
+        for piece in self.puzzle_grid.pieces:
+            x, y, w, h = piece.rect
+            if x <= puzzle_x < (x + w) and y <= puzzle_y < (y + h):
+                return piece
+        
+        return None
+    
+    def draw_hand_overlay(self, frame):
+        """
+        Draw hand tracking information overlay on frame.
+        
+        Args:
+            frame (numpy.ndarray): Webcam frame
+            
+        Returns:
+            numpy.ndarray: Frame with overlay
+        """
+        if frame is None:
+            return frame
+        
+        overlay = frame.copy()
+        
+        # Add semi-transparent info panel
+        cv2.rectangle(overlay, (0, 0), (640, 60), (0, 0, 0), -1)
+        cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+        
+        # Add title
+        cv2.putText(frame, "HAND TRACKING", 
+                   (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+        
+        # Show hand detection status
+        hand_status = "Detected" if self.last_landmarks else "No Hand"
+        color = (0, 255, 0) if self.last_landmarks else (0, 0, 255)
+        cv2.putText(frame, f"Hand: {hand_status}", 
+                   (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
+        
+        # Show pinch status
+        if self.last_landmarks:
+            pinch_text = "PINCH!" if self.pinch_state else "Open"
+            pinch_color = (0, 0, 255) if self.pinch_state else (0, 255, 0)
+            cv2.putText(frame, f"Gesture: {pinch_text}", 
+                       (200, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.5, pinch_color, 1)
+            
+            # Draw finger position indicator
+            if self.current_finger_pos:
+                color = (0, 0, 255) if self.pinch_state else (0, 255, 0)
+                cv2.circle(frame, self.current_finger_pos, 15, color, 3)
+                cv2.circle(frame, self.current_finger_pos, 5, color, -1)
+        
+        return frame
+    
+    def release(self):
+        """Release webcam and cleanup resources."""
+        if self.webcam is not None:
+            self.webcam.release()
+            print("[INFO] Gesture controller webcam released")
+
+
+def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=None, 
+                                  finger_pos=None, pinch_state=False, fps=0):
+    """
+    Create split-screen display with puzzle and hand tracking.
+    
+    Args:
+        puzzle_canvas (numpy.ndarray): Rendered puzzle (700x700)
+        hand_frame (numpy.ndarray): Webcam feed with hand tracking (640x480)
+        piece_under_finger (PuzzlePiece): Currently highlighted piece
+        finger_pos (tuple): Current finger position
+        pinch_state (bool): Whether pinch gesture is active
+        fps (float): Current FPS
+        
+    Returns:
+        numpy.ndarray: Combined display (1340x700)
+    """
+    # Create canvas for split-screen display
+    display = np.zeros((700, 1340, 3), dtype=np.uint8)
+    
+    # Place puzzle on left side (700x700)
+    display[0:700, 0:700] = puzzle_canvas
+    
+    # Resize and place hand frame on right side
+    if hand_frame is not None:
+        # Resize hand frame to fit (640x480 → 640x480, centered in 640x700)
+        hand_display = np.zeros((700, 640, 3), dtype=np.uint8)
+        y_offset = (700 - 480) // 2
+        hand_display[y_offset:y_offset+480, 0:640] = hand_frame
+        display[0:700, 700:1340] = hand_display
+    
+    # Add separator line
+    cv2.line(display, (700, 0), (700, 700), (0, 255, 255), 3)
+    
+    # Add section labels
+    cv2.putText(display, "PUZZLE GRID", 
+                (250, 30), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 2)
+    cv2.putText(display, "HAND TRACKING", 
+                (900, 30), cv2.FONT_HERSHEY_DUPLEX, 1.0, (255, 255, 255), 2)
+    
+    # Add instructions at bottom
+    overlay = display.copy()
+    cv2.rectangle(overlay, (0, 650), (1340, 700), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.8, display, 0.2, 0, display)
+    
+    instructions = "Point to select | Pinch to grab | Move to drag | Q=Quit"
+    cv2.putText(display, instructions, 
+                (320, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+    
+    # Add piece info if piece is under finger
+    if piece_under_finger:
+        info_text = f"Piece {piece_under_finger.id} selected"
+        cv2.putText(display, info_text, 
+                   (20, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    
+    # Add FPS counter
+    if fps > 0:
+        cv2.putText(display, f"FPS: {fps:.1f}", 
+                   (1230, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+    
+    return display
+
+
 def select_difficulty():
     """
     Display difficulty selection menu and get user's choice.
