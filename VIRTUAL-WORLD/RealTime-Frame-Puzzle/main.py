@@ -33,6 +33,17 @@ import random
 # Add parent directory to path to access hand tracking module
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Import hand tracking module with error handling
+try:
+    from hand_tracker import HandDetector
+    HAND_TRACKING_AVAILABLE = True
+    print("[INFO] HandDetector imported successfully")
+except ImportError as e:
+    print(f"[WARNING] HandDetector not found: {e}")
+    print("[WARNING] Hand tracking will be unavailable. Keyboard fallback mode only.")
+    HAND_TRACKING_AVAILABLE = False
+    HandDetector = None
+
 
 class FrameCapture:
     """
