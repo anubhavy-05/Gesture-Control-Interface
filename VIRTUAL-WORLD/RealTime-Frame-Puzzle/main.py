@@ -328,7 +328,8 @@ class PuzzleGrid:
         
         return total_pieces
     
-    def draw_grid(self, show_numbers=True, show_info=True, show_state=True, highlighted_piece=None):
+    def draw_grid(self, show_numbers=True, show_info=True, show_state=True, highlighted_piece=None,
+                  dragging_piece_id=None, snap_preview_cell=None):
         """
         Render the puzzle grid with all pieces.
         
@@ -337,6 +338,8 @@ class PuzzleGrid:
             show_info (bool): Show grid information overlay
             show_state (bool): Show puzzle state (SHUFFLED/SOLVED)
             highlighted_piece (PuzzlePiece): Piece to highlight (for hand tracking)
+            dragging_piece_id (int): ID of piece being dragged (draw last)
+            snap_preview_cell (tuple): (row, col) of snap preview cell to highlight
             
         Returns:
             numpy.ndarray: Rendered canvas with puzzle
@@ -344,8 +347,58 @@ class PuzzleGrid:
         # Create black canvas
         canvas = np.zeros((self.canvas_size, self.canvas_size, 3), dtype=np.uint8)
         
-        # Draw all pieces
+        # Draw snap preview first (under everything)
+        if snap_preview_cell is not None:
+            row, col = snap_preview_cell
+            preview_x = self.offset + col * self.piece_width
+            preview_y = self.offset + row * self.piece_height
+            
+            # Draw semi-transparent blue overlay on target cell
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, 
+                         (preview_x, preview_y), 
+                         (preview_x + self.piece_width, preview_y + self.piece_height),
+                         (255, 200, 100), -1)  # Light blue
+            cv2.addWeighted(overlay, 0.3, canvas, 0.7, 0, canvas)
+            
+            # Draw border around snap preview cell
+            cv2.rectangle(canvas,
+                         (preview_x, preview_y),
+                         (preview_x + self.piece_width, preview_y + self.piece_height),
+                         (255, 200, 100), 3)  # Light blue border
+        
+        # Separate pieces into normal and dragging
+        dragging_piece = None
+        
+        # Draw all pieces (except dragging piece)
         for piece in self.pieces:
+            # Skip dragging piece for now (draw it last)
+            if dragging_piece_id and piece.id == dragging_piece_id:
+                dragging_piece = piece
+                
+                # Draw ghost piece at logical grid position
+                ghost_row, ghost_col = piece.current_position
+                ghost_x = self.offset + ghost_col * self.piece_width
+                ghost_y = self.offset + ghost_row * self.piece_height
+                
+                # Create ghost image (dimmed, gray tint)
+                ghost_image = piece.image.copy()
+                ghost_image = cv2.cvtColor(ghost_image, cv2.COLOR_BGR2GRAY)
+                ghost_image = cv2.cvtColor(ghost_image, cv2.COLOR_GRAY2BGR)
+                
+                # Draw ghost with transparency
+                ghost_overlay = canvas.copy()
+                ghost_overlay[ghost_y:ghost_y+self.piece_height, 
+                             ghost_x:ghost_x+self.piece_width] = ghost_image
+                cv2.addWeighted(ghost_overlay, 0.5, canvas, 0.5, 0, canvas)
+                
+                # Draw dotted border around ghost
+                cv2.rectangle(canvas, (ghost_x, ghost_y), 
+                            (ghost_x + self.piece_width, ghost_y + self.piece_height),
+                            (100, 100, 100), 2, cv2.LINE_AA)
+                
+                continue  # Skip normal rendering for dragging piece
+            
             x, y, w, h = piece.rect
             
             # Place piece image on canvas
@@ -437,6 +490,40 @@ class PuzzleGrid:
             status_text = "SOLVED!" if puzzle_solved else "SHUFFLED"
             cv2.putText(canvas, f"{self.grid_size}x{self.grid_size} Grid | {len(self.pieces)} Pieces | {difficulty} | {status_text}", 
                        (40, info_y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        
+        # Draw dragging piece last (on top of everything)
+        if dragging_piece:
+            x, y, w, h = dragging_piece.rect
+            
+            # Draw stronger shadow for dragging piece
+            shadow_offset = 8
+            shadow_blur = 15
+            for i in range(shadow_blur, 0, -1):
+                alpha = 0.05
+                shadow_overlay = canvas.copy()
+                cv2.rectangle(shadow_overlay,
+                            (x + shadow_offset - i, y + shadow_offset - i),
+                            (x + w + shadow_offset + i, y + h + shadow_offset + i),
+                            (20, 20, 20), -1)
+                cv2.addWeighted(shadow_overlay, alpha, canvas, 1 - alpha, 0, canvas)
+            
+            # Place dragging piece image
+            canvas[y:y+h, x:x+w] = dragging_piece.image
+            
+            # Draw bright yellow border (selected state)
+            cv2.rectangle(canvas, (x, y), (x+w, y+h), (0, 255, 255), 6)
+            
+            # Add strong glow effect
+            overlay = canvas.copy()
+            cv2.rectangle(overlay, (x-8, y-8), (x+w+8, y+h+8), (0, 255, 255), -1)
+            cv2.addWeighted(overlay, 0.4, canvas, 0.6, 0, canvas)
+            
+            # Show piece number
+            if show_numbers:
+                cv2.putText(canvas, str(dragging_piece.id),
+                          (x + 5, y + 20),
+                          cv2.FONT_HERSHEY_SIMPLEX,
+                          0.5, (0, 255, 255), 2)
         
         return canvas
     
@@ -617,6 +704,12 @@ class GestureController:
         self.grab_offset = (0, 0)  # Offset from piece center to finger
         self.last_pinch_state = False  # For edge detection
         self.hand_lost_timer = 0  # Auto-release if hand lost
+        
+        # Commit 7: Drag state variables
+        self.drag_start_position = None  # Original position when drag started
+        self.drag_frame_counter = 0  # For periodic logging
+        self.smooth_position = None  # For smooth interpolation
+        self.smooth_factor = 0.3  # Smoothing factor (0-1)
         
         print("[INFO] GestureController initialized")
     
@@ -841,6 +934,89 @@ class GestureController:
         
         return frame
     
+    def update_dragged_piece_position(self, puzzle_coords):
+        """
+        Update dragged piece position to follow finger in real-time.
+        
+        Args:
+            puzzle_coords (tuple): Current finger position in puzzle space
+        """
+        if not self.piece_grabbed or not self.selected_piece:
+            return
+        
+        if puzzle_coords is None:
+            return
+        
+        # Calculate new piece center position (apply grab offset)
+        piece_center_x = puzzle_coords[0] - self.grab_offset[0]
+        piece_center_y = puzzle_coords[1] - self.grab_offset[1]
+        
+        # Calculate top-left corner from center
+        piece_width = self.puzzle_grid.piece_width
+        piece_height = self.puzzle_grid.piece_height
+        
+        new_x = piece_center_x - (piece_width // 2)
+        new_y = piece_center_y - (piece_height // 2)
+        
+        # Apply boundary constraints (keep within canvas)
+        new_x = max(0, min(new_x, 700 - piece_width))
+        new_y = max(0, min(new_y, 700 - piece_height))
+        
+        # Apply smooth interpolation to reduce jitter
+        if self.smooth_position is None:
+            self.smooth_position = (new_x, new_y)
+        else:
+            smooth_x = self.smooth_position[0] + (new_x - self.smooth_position[0]) * self.smooth_factor
+            smooth_y = self.smooth_position[1] + (new_y - self.smooth_position[1]) * self.smooth_factor
+            self.smooth_position = (smooth_x, smooth_y)
+            new_x, new_y = int(smooth_x), int(smooth_y)
+        
+        # Update piece rect (visual position only, not logical grid position)
+        self.selected_piece.rect = (new_x, new_y, piece_width, piece_height)
+        
+        # Periodic logging (every 30 frames)
+        self.drag_frame_counter += 1
+        if self.drag_frame_counter >= 30:
+            print(f"[DEBUG] Piece {self.selected_piece.id} position: ({new_x}, {new_y})")
+            self.drag_frame_counter = 0
+    
+    def get_snap_preview(self, piece):
+        """
+        Calculate which grid cell the piece would snap to.
+        
+        Args:
+            piece (PuzzlePiece): Piece to preview snap for
+            
+        Returns:
+            tuple: (row, col) of target grid cell, or None
+        """
+        if piece is None:
+            return None
+        
+        # Get piece center
+        piece_center_x = piece.rect[0] + piece.rect[2] // 2
+        piece_center_y = piece.rect[1] + piece.rect[3] // 2
+        
+        # Get grid parameters
+        piece_width = self.puzzle_grid.piece_width
+        piece_height = self.puzzle_grid.piece_height
+        offset = self.puzzle_grid.offset
+        grid_size = self.puzzle_grid.grid_size
+        
+        # Calculate which grid cell the piece center is in
+        rel_x = piece_center_x - offset
+        rel_y = piece_center_y - offset
+        
+        # Find nearest grid cell
+        col = round(rel_x / piece_width)
+        row = round(rel_y / piece_height)
+        
+        # Check if within valid grid range
+        if 0 <= col < grid_size and 0 <= row < grid_size:
+            return (row, col)
+        
+        return None
+    
     def snap_to_nearest_grid(self, piece):
         """
         Snap piece to nearest valid grid position.
@@ -881,6 +1057,14 @@ class GestureController:
         snapped_x = offset + (col * piece_width)
         snapped_y = offset + (row * piece_height)
         
+        # Calculate drag distance if we have start position
+        if self.drag_start_position:
+            drag_distance = int(np.sqrt(
+                (piece.rect[0] - self.drag_start_position[0])**2 + 
+                (piece.rect[1] - self.drag_start_position[1])**2
+            ))
+            print(f"[INFO] Drag distance: {drag_distance} pixels")
+        
         # Debug logging
         print(f"[DEBUG] Snap to grid: ({piece.rect[0]}, {piece.rect[1]}) → ({snapped_x}, {snapped_y})")
         print(f"[INFO] Piece {piece.id} placed at grid position (row {row}, col {col})")
@@ -888,6 +1072,9 @@ class GestureController:
         # Update piece position
         piece.current_position = (row, col)
         piece.rect = (snapped_x, snapped_y, piece_width, piece_height)
+        
+        # Reset smooth position
+        self.smooth_position = None
         
         return (row, col)
     
@@ -900,7 +1087,7 @@ class GestureController:
 
 def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=None, 
                                   finger_pos=None, pinch_state=False, fps=0, 
-                                  selected_piece=None, piece_grabbed=False):
+                                  selected_piece=None, piece_grabbed=False, drag_distance=None):
     """
     Create split-screen display with puzzle and hand tracking.
     
@@ -911,6 +1098,9 @@ def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=No
         finger_pos (tuple): Current finger position
         pinch_state (bool): Whether pinch gesture is active
         fps (float): Current FPS
+        selected_piece (PuzzlePiece): Currently selected/grabbed piece
+        piece_grabbed (bool): Whether piece is being held
+        drag_distance (int): Distance dragged in pixels
         
     Returns:
         numpy.ndarray: Combined display (1340x700)
@@ -945,18 +1135,21 @@ def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=No
     
     # Update instructions based on state
     if piece_grabbed and selected_piece:
-        instructions = f"Piece {selected_piece.id} GRABBED | Release to place | Q=Quit"
-        instruction_color = (0, 0, 255)  # Red when grabbed
+        instructions = f"DRAGGING Piece {selected_piece.id} | Release to snap | Q=Quit"
+        instruction_color = (0, 0, 255)  # Red when dragging
     else:
         instructions = "Point to hover | Pinch to grab | Move to drag | Q=Quit"
         instruction_color = (0, 255, 255)  # Yellow normal
     
     cv2.putText(display, instructions, 
-                (280, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.7, instruction_color, 2)
+                (250, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.7, instruction_color, 2)
     
     # Add piece info based on state
     if piece_grabbed and selected_piece:
-        info_text = f"HOLDING: Piece {selected_piece.id}"
+        if drag_distance is not None:
+            info_text = f"DRAGGING: Piece {selected_piece.id} ({drag_distance}px)"
+        else:
+            info_text = f"DRAGGING: Piece {selected_piece.id}"
         info_color = (0, 0, 255)  # Red
         cv2.putText(display, info_text, 
                    (20, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, info_color, 2)
@@ -1430,6 +1623,13 @@ def main():
                     gesture_controller.selected_piece = piece_under_finger
                     gesture_controller.piece_grabbed = True
                     
+                    # Store original position for drag distance calculation
+                    gesture_controller.drag_start_position = (
+                        piece_under_finger.rect[0],
+                        piece_under_finger.rect[1]
+                    )
+                    gesture_controller.drag_frame_counter = 0
+                    
                     # Calculate grab offset (finger position relative to piece center)
                     piece_center_x = piece_under_finger.rect[0] + piece_under_finger.rect[2] // 2
                     piece_center_y = piece_under_finger.rect[1] + piece_under_finger.rect[3] // 2
@@ -1443,7 +1643,12 @@ def main():
                         gesture_controller.grab_offset = (0, 0)
                     
                     print(f"[INFO] Piece {piece_under_finger.id} selected")
+                    print(f"[INFO] Dragging piece {piece_under_finger.id}")
                     print(f"[DEBUG] Grab offset: {gesture_controller.grab_offset}")
+                
+                # COMMIT 7: Update dragged piece position in real-time
+                if gesture_controller.piece_grabbed and puzzle_coords:
+                    gesture_controller.update_dragged_piece_position(puzzle_coords)
                 
                 # Handle piece release on pinch release
                 if pinch_released and gesture_controller.piece_grabbed:
@@ -1455,6 +1660,7 @@ def main():
                         gesture_controller.selected_piece = None
                         gesture_controller.piece_grabbed = False
                         gesture_controller.grab_offset = (0, 0)
+                        gesture_controller.drag_start_position = None
                         print("[INFO] Piece released and snapped to grid")
                 
                 # Auto-release if hand lost while holding piece
@@ -1483,8 +1689,31 @@ def main():
                 puzzle._selected_piece_id = (gesture_controller.selected_piece.id 
                                             if gesture_controller.selected_piece else None)
                 
-                # Draw puzzle grid with highlighted piece
-                puzzle_canvas = puzzle.draw_grid(highlighted_piece=highlighted_piece)
+                # Get snap preview if dragging
+                snap_preview_cell = None
+                if gesture_controller.piece_grabbed and gesture_controller.selected_piece:
+                    snap_preview_cell = gesture_controller.get_snap_preview(
+                        gesture_controller.selected_piece
+                    )
+                    if snap_preview_cell:
+                        # Periodic logging of snap preview
+                        if gesture_controller.drag_frame_counter % 30 == 0:
+                            print(f"[DEBUG] Snap preview: cell (row {snap_preview_cell[0]}, col {snap_preview_cell[1]})")
+                
+                # Calculate current drag distance
+                drag_distance = None
+                if gesture_controller.piece_grabbed and gesture_controller.drag_start_position:
+                    dx = gesture_controller.selected_piece.rect[0] - gesture_controller.drag_start_position[0]
+                    dy = gesture_controller.selected_piece.rect[1] - gesture_controller.drag_start_position[1]
+                    drag_distance = int(np.sqrt(dx**2 + dy**2))
+                
+                # Draw puzzle grid with highlighted piece, dragging state, and snap preview
+                dragging_id = gesture_controller.selected_piece.id if gesture_controller.piece_grabbed else None
+                puzzle_canvas = puzzle.draw_grid(
+                    highlighted_piece=highlighted_piece,
+                    dragging_piece_id=dragging_id,
+                    snap_preview_cell=snap_preview_cell
+                )
                 
                 # Draw overlay on hand frame
                 hand_frame = gesture_controller.draw_hand_overlay(hand_frame)
@@ -1498,7 +1727,8 @@ def main():
                     pinch_state=is_pinching,
                     fps=fps,
                     selected_piece=gesture_controller.selected_piece,
-                    piece_grabbed=gesture_controller.piece_grabbed
+                    piece_grabbed=gesture_controller.piece_grabbed,
+                    drag_distance=drag_distance
                 )
                 
                 # Show display
