@@ -70,17 +70,31 @@ class FrameCapture:
             numpy.ndarray: Captured frame, or None if capture cancelled
         """
         try:
-            # Initialize webcam
-            self.cap = cv2.VideoCapture(0)
+            # Initialize webcam with explicit settings for faster opening
+            print("\n[INFO] Opening webcam...")
+            print("[INFO] Please wait, this may take a few seconds...")
+            print("[TIP] If stuck, check if another app is using the webcam")
+            
+            self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # CAP_DSHOW for faster Windows opening
+            
+            # Set properties for faster initialization
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
             
             if not self.cap.isOpened():
                 print("[ERROR] Could not access webcam!")
+                print("[TIP] Make sure:")
+                print("      1. Webcam is connected")
+                print("      2. No other app is using it")
+                print("      3. Webcam drivers are installed")
                 return None
             
-            print("\n[INFO] Webcam opened successfully")
+            print("[SUCCESS] Webcam opened successfully")
             print("[INFO] Press SPACE to capture, ESC to exit")
             
             captured_frame = None
+            frame_count = 0
             
             while True:
                 # Read frame from webcam
@@ -90,26 +104,30 @@ class FrameCapture:
                     print("[ERROR] Failed to read frame from webcam")
                     break
                 
+                frame_count += 1
+                
                 # Create display frame with instructions
                 display_frame = frame.copy()
                 
                 # Add semi-transparent overlay for instructions
                 overlay = display_frame.copy()
-                cv2.rectangle(overlay, (10, 10), (630, 120), (0, 0, 0), -1)
+                cv2.rectangle(overlay, (10, 10), (630, 140), (0, 0, 0), -1)
                 cv2.addWeighted(overlay, 0.7, display_frame, 0.3, 0, display_frame)
                 
-                # Add instruction text
+                # Add instruction text  (Hinglish-friendly)
                 cv2.putText(display_frame, "WEBCAM CAPTURE MODE", 
                            (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                cv2.putText(display_frame, "Press SPACE to capture frame", 
-                           (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-                cv2.putText(display_frame, "Press ESC to exit", 
-                           (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+                cv2.putText(display_frame, "Press SPACE to capture (Tasveer lene ke liye)", 
+                           (20, 75), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                cv2.putText(display_frame, "Press ESC to cancel (Cancel karne ke liye)", 
+                           (20, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+                cv2.putText(display_frame, f"Frames: {frame_count}", 
+                           (20, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
                 
                 # Show the frame
                 cv2.imshow("Webcam - Frame Capture", display_frame)
                 
-                # Wait for key press
+                # Wait for key press (1ms delay)
                 key = cv2.waitKey(1) & 0xFF
                 
                 if key == 32:  # SPACE key
@@ -126,9 +144,17 @@ class FrameCapture:
             
             return captured_frame
             
+        except KeyboardInterrupt:
+            print("\n[INFO] Webcam capture interrupted by user (Ctrl+C)")
+            print("[INFO] aapne Ctrl+C press kiya, program band ho raha hai...")
+            self.release()
+            cv2.destroyAllWindows()
+            return None
         except Exception as e:
             print(f"[ERROR] Exception during webcam capture: {e}")
+            print(f"[ERROR type] {type(e).__name__}")
             self.release()
+            cv2.destroyAllWindows()
             return None
     
     def load_from_file(self, filepath):
@@ -757,30 +783,50 @@ class GestureController:
             bool: True if webcam opened successfully
         """
         if not HAND_TRACKING_AVAILABLE:
-            print("[ERROR] Hand tracking not available!")
+            print("\n[ERROR] Hand tracking not available!")
+            print("[ERROR] HandDetector import failed")
+            print("[INFO] Please check:")
+            print("       1. hand_tracker.py file exists")
+            print("       2. OpenCV is installed (pip install opencv-python)")
             return False
         
         try:
+            print("\n[INFO] Initializing hand tracking system...")
+            
             # Initialize hand detector
             self.hand_detector = HandDetector(max_hands=1, detection_confidence=0.7)
-            print("[INFO] HandDetector initialized")
+            print("[SUCCESS] HandDetector initialized")
             
-            # Open webcam
-            self.webcam = cv2.VideoCapture(0)
+            # Open webcam with DirectShow for faster Windows opening
+            print("[INFO] Opening webcam for gesture control...")
+            print("[TIP] Agar webcam nahi khul raha, doosre apps band kar do")
+            
+            self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
             
             if not self.webcam.isOpened():
                 print("[ERROR] Could not open webcam for hand tracking!")
+                print("[TIP] Webcam check karo:")
+                print("      - Kya connected hai?")
+                print("      - Kya koi aur app use kar raha hai?")
+                print("      - Driver install hai?")
                 return False
             
-            # Set webcam resolution
+            # Set webcam resolution for optimal performance
             self.webcam.set(cv2.CAP_PROP_FRAME_WIDTH, self.frame_width)
             self.webcam.set(cv2.CAP_PROP_FRAME_HEIGHT, self.frame_height)
+            self.webcam.set(cv2.CAP_PROP_FPS, 30)
             
-            print(f"[INFO] Webcam opened for hand tracking ({self.frame_width}x{self.frame_height})")
+            print(f"[SUCCESS] Webcam ready for hand tracking ({self.frame_width}x{self.frame_height})")
+            print("[INFO] Aap apna haath camera ke saamne rakh sakte ho")
             return True
             
+        except KeyboardInterrupt:
+            print("\n[INFO] Webcam initialization interrupted (Ctrl+C pressed)")
+            print("[INFO] aapne program band kar diya")
+            return False
         except Exception as e:
             print(f"[ERROR] Failed to start webcam: {e}")
+            print(f"[ERROR] Error type: {type(e).__name__}")
             return False
     
     def get_hand_frame(self):
@@ -803,7 +849,12 @@ class GestureController:
             frame = cv2.flip(frame, 1)
             
             # Detect hands
-            frame, landmarks = self.hand_detector.find_hands(frame, draw=True)
+            frame, results = self.hand_detector.find_hands(frame, draw=True)
+            
+            # Convert MockResults to actual landmarks list
+            landmarks = self.hand_detector.get_landmarks(results, hand_no=0,
+                                                        frame_width=self.frame_width,
+                                                        frame_height=self.frame_height)
             
             # Store landmarks for later use
             self.last_landmarks = landmarks
@@ -819,22 +870,18 @@ class GestureController:
         Get index finger tip coordinates.
         
         Args:
-            landmarks (list): Hand landmarks from MediaPipe
+            landmarks (list): Hand landmarks from HandDetector
             
         Returns:
             tuple: (x, y) coordinates of index finger tip, or None
         """
-        if not landmarks or len(landmarks) == 0:
+        if landmarks is None:
             return None
         
         try:
-            # Index finger tip is landmark 8
-            hand_data = landmarks[0]
-            if 'lmList' in hand_data and len(hand_data['lmList']) > 8:
-                landmark = hand_data['lmList'][8]
-                return (landmark[0], landmark[1])
-            
-            return None
+            # Use HandDetector's method to get index finger position
+            position = self.hand_detector.get_index_finger_position(landmarks)
+            return position
             
         except Exception as e:
             print(f"[DEBUG] Error getting finger position: {e}")
@@ -845,32 +892,28 @@ class GestureController:
         Check if thumb and index finger are close (pinch gesture).
         
         Args:
-            landmarks (list): Hand landmarks from MediaPipe
+            landmarks (list): Hand landmarks from HandDetector
             
         Returns:
             bool: True if pinching (distance < 30px)
         """
-        if not landmarks or len(landmarks) == 0:
+        if landmarks is None:
             return False
         
         try:
-            hand_data = landmarks[0]
-            if 'lmList' in hand_data:
-                lm_list = hand_data['lmList']
+            # Get thumb and index finger positions
+            thumb_pos = self.hand_detector.get_thumb_position(landmarks)
+            index_pos = self.hand_detector.get_index_finger_position(landmarks)
+            
+            if thumb_pos and index_pos:
+                # Calculate distance
+                distance = np.sqrt(
+                    (thumb_pos[0] - index_pos[0])**2 + 
+                    (thumb_pos[1] - index_pos[1])**2
+                )
                 
-                # Thumb tip (4) and index finger tip (8)
-                if len(lm_list) > 8:
-                    thumb_tip = lm_list[4]
-                    index_tip = lm_list[8]
-                    
-                    # Calculate distance
-                    distance = np.sqrt(
-                        (thumb_tip[0] - index_tip[0])**2 + 
-                        (thumb_tip[1] - index_tip[1])**2
-                    )
-                    
-                    self.pinch_state = distance < 30
-                    return self.pinch_state
+                self.pinch_state = distance < 30
+                return self.pinch_state
             
             return False
             
@@ -1643,6 +1686,12 @@ def main():
             cv2.waitKey(3000)
             cv2.destroyAllWindows()
             return
+        
+        # Create game window explicitly
+        window_name = "RealTime Frame Puzzle - Gesture Control"
+        cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(window_name, 1340, 700)
+        print("[INFO] Game window created")
         
         # Initialize gesture controller
         gesture_controller = GestureController(puzzle)
