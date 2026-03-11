@@ -329,7 +329,7 @@ class PuzzleGrid:
         return total_pieces
     
     def draw_grid(self, show_numbers=True, show_info=True, show_state=True, highlighted_piece=None,
-                  dragging_piece_id=None, snap_preview_cell=None):
+                  dragging_piece_id=None, snap_preview_data=None):
         """
         Render the puzzle grid with all pieces.
         
@@ -339,7 +339,7 @@ class PuzzleGrid:
             show_state (bool): Show puzzle state (SHUFFLED/SOLVED)
             highlighted_piece (PuzzlePiece): Piece to highlight (for hand tracking)
             dragging_piece_id (int): ID of piece being dragged (draw last)
-            snap_preview_cell (tuple): (row, col) of snap preview cell to highlight
+            snap_preview_data (tuple): (row, col, target_piece) for snap preview
             
         Returns:
             numpy.ndarray: Rendered canvas with puzzle
@@ -348,24 +348,34 @@ class PuzzleGrid:
         canvas = np.zeros((self.canvas_size, self.canvas_size, 3), dtype=np.uint8)
         
         # Draw snap preview first (under everything)
-        if snap_preview_cell is not None:
-            row, col = snap_preview_cell
+        if snap_preview_data is not None:
+            row, col, target_piece = snap_preview_data
             preview_x = self.offset + col * self.piece_width
             preview_y = self.offset + row * self.piece_height
             
-            # Draw semi-transparent blue overlay on target cell
+            # Choose color based on whether it's a swap or place
+            if target_piece is not None:
+                # SWAP mode: Orange overlay
+                preview_color = (0, 165, 255)  # Orange (BGR)
+                border_color = (0, 140, 255)  # Darker orange
+            else:
+                # PLACE mode: Blue overlay
+                preview_color = (255, 200, 100)  # Light blue
+                border_color = (255, 200, 100)
+            
+            # Draw semi-transparent overlay on target cell
             overlay = canvas.copy()
             cv2.rectangle(overlay, 
                          (preview_x, preview_y), 
                          (preview_x + self.piece_width, preview_y + self.piece_height),
-                         (255, 200, 100), -1)  # Light blue
-            cv2.addWeighted(overlay, 0.3, canvas, 0.7, 0, canvas)
+                         preview_color, -1)
+            cv2.addWeighted(overlay, 0.4, canvas, 0.6, 0, canvas)
             
             # Draw border around snap preview cell
             cv2.rectangle(canvas,
                          (preview_x, preview_y),
                          (preview_x + self.piece_width, preview_y + self.piece_height),
-                         (255, 200, 100), 3)  # Light blue border
+                         border_color, 3)
         
         # Separate pieces into normal and dragging
         dragging_piece = None
@@ -674,6 +684,22 @@ class PuzzleGrid:
         not_solved = not all(piece.is_correct_position() for piece in self.pieces)
         
         return not_solved
+    
+    def find_piece_at_position(self, row, col):
+        """
+        Find puzzle piece at the given logical grid position.
+        
+        Args:
+            row (int): Row position in grid
+            col (int): Column position in grid
+            
+        Returns:
+            PuzzlePiece: Piece at that position, or None if empty
+        """
+        for piece in self.pieces:
+            if piece.current_position == (row, col):
+                return piece
+        return None
 
 
 class GestureController:
@@ -710,6 +736,9 @@ class GestureController:
         self.drag_frame_counter = 0  # For periodic logging
         self.smooth_position = None  # For smooth interpolation
         self.smooth_factor = 0.3  # Smoothing factor (0-1)
+        
+        # Commit 8: Swap tracking
+        self.swap_count = 0  # Total number of swaps performed
         
         print("[INFO] GestureController initialized")
     
@@ -982,13 +1011,13 @@ class GestureController:
     
     def get_snap_preview(self, piece):
         """
-        Calculate which grid cell the piece would snap to.
+        Calculate which grid cell the piece would snap to and what piece is there.
         
         Args:
             piece (PuzzlePiece): Piece to preview snap for
             
         Returns:
-            tuple: (row, col) of target grid cell, or None
+            tuple: (row, col, target_piece) where target_piece is piece at that position or None
         """
         if piece is None:
             return None
@@ -1013,7 +1042,9 @@ class GestureController:
         
         # Check if within valid grid range
         if 0 <= col < grid_size and 0 <= row < grid_size:
-            return (row, col)
+            # Check if there's a piece at target position
+            target_piece = self.puzzle_grid.find_piece_at_position(row, col)
+            return (row, col, target_piece)
         
         return None
     
@@ -1053,10 +1084,6 @@ class GestureController:
         col = max(0, min(col, grid_size - 1))
         row = max(0, min(row, grid_size - 1))
         
-        # Calculate snapped position (top-left corner)
-        snapped_x = offset + (col * piece_width)
-        snapped_y = offset + (row * piece_height)
-        
         # Calculate drag distance if we have start position
         if self.drag_start_position:
             drag_distance = int(np.sqrt(
@@ -1065,13 +1092,52 @@ class GestureController:
             ))
             print(f"[INFO] Drag distance: {drag_distance} pixels")
         
-        # Debug logging
-        print(f"[DEBUG] Snap to grid: ({piece.rect[0]}, {piece.rect[1]}) → ({snapped_x}, {snapped_y})")
-        print(f"[INFO] Piece {piece.id} placed at grid position (row {row}, col {col})")
+        # COMMIT 8: Check if target cell is occupied (swap detection)
+        target_piece = self.puzzle_grid.find_piece_at_position(row, col)
         
-        # Update piece position
-        piece.current_position = (row, col)
-        piece.rect = (snapped_x, snapped_y, piece_width, piece_height)
+        if target_piece and target_piece.id != piece.id:
+            # SWAP MODE: Target cell is occupied by different piece
+            print(f"\n[INFO] Swap detected!")
+            print(f"[INFO] Piece {piece.id} ↔ Piece {target_piece.id}")
+            
+            # Save original positions
+            piece_old_pos = piece.current_position
+            target_old_pos = target_piece.current_position
+            
+            # Calculate snapped positions
+            snapped_x = offset + (col * piece_width)
+            snapped_y = offset + (row * piece_height)
+            
+            target_snapped_x = offset + (piece_old_pos[1] * piece_width)
+            target_snapped_y = offset + (piece_old_pos[0] * piece_height)
+            
+            # Perform swap: Move dragged piece to target's position
+            piece.current_position = target_old_pos
+            piece.rect = (snapped_x, snapped_y, piece_width, piece_height)
+            
+            # Move target piece to dragged piece's original position
+            target_piece.current_position = piece_old_pos
+            target_piece.rect = (target_snapped_x, target_snapped_y, piece_width, piece_height)
+            
+            # Increment swap counter
+            self.swap_count += 1
+            
+            # Detailed logging
+            print(f"[DEBUG] Piece {piece.id}: {piece_old_pos} → {target_old_pos}")
+            print(f"[DEBUG] Piece {target_piece.id}: {target_old_pos} → {piece_old_pos}")
+            print(f"[INFO] Total swaps: {self.swap_count}\n")
+            
+        else:
+            # PLACE MODE: Empty cell or same piece (no swap)
+            snapped_x = offset + (col * piece_width)
+            snapped_y = offset + (row * piece_height)
+            
+            print(f"[DEBUG] Snap to grid: ({piece.rect[0]}, {piece.rect[1]}) → ({snapped_x}, {snapped_y})")
+            print(f"[INFO] Piece {piece.id} placed at grid position (row {row}, col {col})")
+            
+            # Update piece position
+            piece.current_position = (row, col)
+            piece.rect = (snapped_x, snapped_y, piece_width, piece_height)
         
         # Reset smooth position
         self.smooth_position = None
@@ -1087,7 +1153,8 @@ class GestureController:
 
 def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=None, 
                                   finger_pos=None, pinch_state=False, fps=0, 
-                                  selected_piece=None, piece_grabbed=False, drag_distance=None):
+                                  selected_piece=None, piece_grabbed=False, drag_distance=None,
+                                  swap_target_piece=None, swap_count=0):
     """
     Create split-screen display with puzzle and hand tracking.
     
@@ -1101,6 +1168,8 @@ def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=No
         selected_piece (PuzzlePiece): Currently selected/grabbed piece
         piece_grabbed (bool): Whether piece is being held
         drag_distance (int): Distance dragged in pixels
+        swap_target_piece (PuzzlePiece): Piece at target position (for swap preview)
+        swap_count (int): Total number of swaps performed
         
     Returns:
         numpy.ndarray: Combined display (1340x700)
@@ -1135,22 +1204,33 @@ def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=No
     
     # Update instructions based on state
     if piece_grabbed and selected_piece:
-        instructions = f"DRAGGING Piece {selected_piece.id} | Release to snap | Q=Quit"
-        instruction_color = (0, 0, 255)  # Red when dragging
+        if swap_target_piece:
+            # SWAP mode
+            instructions = f"DRAGGING Piece {selected_piece.id} | Release to SWAP | Q=Quit"
+            instruction_color = (0, 140, 255)  # Orange when swapping
+        else:
+            # PLACE mode
+            instructions = f"DRAGGING Piece {selected_piece.id} | Release to place | Q=Quit"
+            instruction_color = (0, 0, 255)  # Red when dragging
     else:
         instructions = "Point to hover | Pinch to grab | Move to drag | Q=Quit"
         instruction_color = (0, 255, 255)  # Yellow normal
     
     cv2.putText(display, instructions, 
-                (250, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.7, instruction_color, 2)
+                (220, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.7, instruction_color, 2)
     
     # Add piece info based on state
     if piece_grabbed and selected_piece:
-        if drag_distance is not None:
+        if swap_target_piece:
+            # Show swap target
+            info_text = f"SWAP: Piece {selected_piece.id} ↔ Piece {swap_target_piece.id}"
+            info_color = (0, 140, 255)  # Orange
+        elif drag_distance is not None:
             info_text = f"DRAGGING: Piece {selected_piece.id} ({drag_distance}px)"
+            info_color = (0, 0, 255)  # Red
         else:
             info_text = f"DRAGGING: Piece {selected_piece.id}"
-        info_color = (0, 0, 255)  # Red
+            info_color = (0, 0, 255)  # Red
         cv2.putText(display, info_text, 
                    (20, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, info_color, 2)
     elif piece_under_finger:
@@ -1159,10 +1239,15 @@ def create_split_screen_display(puzzle_canvas, hand_frame, piece_under_finger=No
         cv2.putText(display, info_text, 
                    (20, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, info_color, 2)
     
-    # Add FPS counter
+    # Add FPS counter and swap count
     if fps > 0:
         cv2.putText(display, f"FPS: {fps:.1f}", 
-                   (1230, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                   (1180, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+    
+    # Add swap count
+    if swap_count > 0:
+        cv2.putText(display, f"Swaps: {swap_count}", 
+                   (1050, 680), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
     
     return display
 
@@ -1689,16 +1774,23 @@ def main():
                 puzzle._selected_piece_id = (gesture_controller.selected_piece.id 
                                             if gesture_controller.selected_piece else None)
                 
-                # Get snap preview if dragging
-                snap_preview_cell = None
+                # Get snap preview if dragging (includes target piece info)
+                snap_preview_data = None
+                swap_target_piece = None
                 if gesture_controller.piece_grabbed and gesture_controller.selected_piece:
-                    snap_preview_cell = gesture_controller.get_snap_preview(
+                    snap_preview_data = gesture_controller.get_snap_preview(
                         gesture_controller.selected_piece
                     )
-                    if snap_preview_cell:
+                    if snap_preview_data:
+                        row, col, target_piece = snap_preview_data
+                        swap_target_piece = target_piece
+                        
                         # Periodic logging of snap preview
                         if gesture_controller.drag_frame_counter % 30 == 0:
-                            print(f"[DEBUG] Snap preview: cell (row {snap_preview_cell[0]}, col {snap_preview_cell[1]})")
+                            if target_piece:
+                                print(f"[DEBUG] Snap preview: SWAP with Piece {target_piece.id} at (row {row}, col {col})")
+                            else:
+                                print(f"[DEBUG] Snap preview: PLACE at cell (row {row}, col {col})")
                 
                 # Calculate current drag distance
                 drag_distance = None
@@ -1712,7 +1804,7 @@ def main():
                 puzzle_canvas = puzzle.draw_grid(
                     highlighted_piece=highlighted_piece,
                     dragging_piece_id=dragging_id,
-                    snap_preview_cell=snap_preview_cell
+                    snap_preview_data=snap_preview_data
                 )
                 
                 # Draw overlay on hand frame
@@ -1728,7 +1820,9 @@ def main():
                     fps=fps,
                     selected_piece=gesture_controller.selected_piece,
                     piece_grabbed=gesture_controller.piece_grabbed,
-                    drag_distance=drag_distance
+                    drag_distance=drag_distance,
+                    swap_target_piece=swap_target_piece,
+                    swap_count=gesture_controller.swap_count
                 )
                 
                 # Show display
