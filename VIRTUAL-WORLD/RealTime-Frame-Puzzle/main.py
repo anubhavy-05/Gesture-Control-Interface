@@ -30,8 +30,15 @@ import os
 import time
 import random
 
-# Add parent directory to path to access hand tracking module
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add parent directory (Gesture-Control-Interface) to path to access hand tracking module
+# We need to go up TWO levels: RealTime-Frame-Puzzle -> VIRTUAL-WORLD -> Gesture-Control-Interface
+script_dir = os.path.dirname(os.path.abspath(__file__))  # RealTime-Frame-Puzzle dir
+virtual_world_dir = os.path.dirname(script_dir)  # VIRTUAL-WORLD dir
+parent_dir = os.path.dirname(virtual_world_dir)  # Gesture-Control-Interface dir
+sys.path.insert(0, parent_dir)  # Use insert(0, ...) to prioritize this path
+
+print(f"[DEBUG] Parent directory added to path: {parent_dir}")
+print(f"[DEBUG] hand_tracker.py exists: {os.path.exists(os.path.join(parent_dir, 'hand_tracker.py'))}")
 
 # Import hand tracking module with error handling
 try:
@@ -1456,7 +1463,7 @@ def main():
     Main entry point for the Real-Time Frame Puzzle game.
     """
     print("=" * 80)
-    print("🧩 Real-Time Frame Puzzle - Starting...")
+    print("[PUZZLE] Real-Time Frame Puzzle - Starting...")
     print("=" * 80)
     
     # Show menu and get user choice
@@ -1577,7 +1584,7 @@ def main():
             
             # Verify puzzle is not solved
             is_solved_check = puzzle.is_solved()
-            print(f"[INFO] Puzzle is solved: {is_solved_check} {'✗ (Good!)' if not is_solved_check else '✓ (Need to re-shuffle)'}")
+            print(f"[INFO] Puzzle is solved: {is_solved_check} {'[X] (Good!)' if not is_solved_check else '[Y] (Need to re-shuffle)'}")
             
             # If somehow still solved, shuffle again
             if is_solved_check:
