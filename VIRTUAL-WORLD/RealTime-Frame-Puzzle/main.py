@@ -23,10 +23,17 @@ Features:
 ================================================================================
 """
 
-import cv2
-import numpy as np
 import sys
 import os
+
+# Force unbuffered output - ensures prints show up immediately in VS Code terminal
+os.environ['PYTHONUNBUFFERED'] = '1'
+sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
+
+print("[START] main.py is running...", flush=True)
+
+import cv2
+import numpy as np
 import time
 import random
 
@@ -75,22 +82,45 @@ class FrameCapture:
             print("[INFO] Please wait, this may take a few seconds...")
             print("[TIP] If stuck, check if another app is using the webcam")
             
-            self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)  # CAP_DSHOW for faster Windows opening
+            # Try with CAP_DSHOW first (faster on Windows)
+            try:
+                self.cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                print("[DEBUG] Trying with CAP_DSHOW backend...")
+            except Exception as e:
+                print(f"[WARNING] CAP_DSHOW failed: {e}")
+                print("[INFO] Falling back to default backend...")
+                self.cap = cv2.VideoCapture(0)
             
             # Set properties for faster initialization
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             self.cap.set(cv2.CAP_PROP_FPS, 30)
             
+            # Wait a moment for camera to initialize
+            time.sleep(0.5)
+            
             if not self.cap.isOpened():
                 print("[ERROR] Could not access webcam!")
-                print("[TIP] Make sure:")
-                print("      1. Webcam is connected")
-                print("      2. No other app is using it")
-                print("      3. Webcam drivers are installed")
+                print("[TIP] Troubleshooting steps:")
+                print("      1. Check if webcam is physically connected")
+                print("      2. Close other apps using webcam (Zoom, Skype, Teams, etc.)")
+                print("      3. Try unplugging and reconnecting webcam")
+                print("      4. Check Windows Privacy Settings:")
+                print("         Settings > Privacy > Camera > Allow apps to access camera")
+                print("      5. Restart your computer")
+                self.release()
+                return None
+            
+            # Test if we can actually read a frame
+            ret, test_frame = self.cap.read()
+            if not ret or test_frame is None:
+                print("[ERROR] Webcam opened but cannot read frames!")
+                print("[TIP] Webcam might be faulty or drivers need updating")
+                self.release()
                 return None
             
             print("[SUCCESS] Webcam opened successfully")
+            print("[INFO] Webcam is working! You should see the live preview window now.")
             print("[INFO] Press SPACE to capture, ESC to exit")
             
             captured_frame = None
@@ -801,14 +831,31 @@ class GestureController:
             print("[INFO] Opening webcam for gesture control...")
             print("[TIP] Agar webcam nahi khul raha, doosre apps band kar do")
             
-            self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+            # Try with CAP_DSHOW first, fallback to default
+            try:
+                self.webcam = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                print("[DEBUG] Using CAP_DSHOW backend for hand tracking...")
+            except Exception as e:
+                print(f"[WARNING] CAP_DSHOW not available: {e}")
+                print("[INFO] Using default backend...")
+                self.webcam = cv2.VideoCapture(0)
+            
+            # Give camera time to initialize
+            time.sleep(0.5)
             
             if not self.webcam.isOpened():
                 print("[ERROR] Could not open webcam for hand tracking!")
                 print("[TIP] Webcam check karo:")
                 print("      - Kya connected hai?")
                 print("      - Kya koi aur app use kar raha hai?")
+                print("      - Privacy settings check karo (Settings > Camera)")
                 print("      - Driver install hai?")
+                return False
+            
+            # Test reading a frame
+            ret, test = self.webcam.read()
+            if not ret:
+                print("[ERROR] Webcam opened but cannot read frames!")
                 return False
             
             # Set webcam resolution for optimal performance
@@ -1505,9 +1552,9 @@ def main():
     """
     Main entry point for the Real-Time Frame Puzzle game.
     """
-    print("=" * 80)
-    print("[PUZZLE] Real-Time Frame Puzzle - Starting...")
-    print("=" * 80)
+    print("=" * 80, flush=True)
+    print("[PUZZLE] Real-Time Frame Puzzle - Starting...", flush=True)
+    print("=" * 80, flush=True)
     
     # Show menu and get user choice
     choice = show_menu()
@@ -1934,4 +1981,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"\n[FATAL ERROR] Program crashed: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
+        print("\nPress Enter to exit...", flush=True)
+        input()
+    except KeyboardInterrupt:
+        print("\n[INFO] Program interrupted by user", flush=True)
